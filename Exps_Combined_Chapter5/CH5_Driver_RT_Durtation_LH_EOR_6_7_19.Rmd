@@ -37,10 +37,26 @@ original.data.exp2 = data.exp2
 
 #Select variables of interest from the dataset & ONLY INCLUDE participants in ADAPTIVE CONDITION- EXPERIMENT 2 
 data.exp2 = filter(data.exp2, algorithm == "adapt")
-data.exp2 = data.exp2 %>% ungroup()%>% mutate(algorithm = ifelse(algorithm == "adapt", "Adaptive",0))
 
 #Merge data sets
-data.complete = merge(data.exp1, data.exp2)
+data.complete = rbind(data.exp1, data.exp2)
+
+#Create a new variable to denote which experiment the data is from 
+data.complete = data.complete %>% ungroup()%>%
+  mutate(experiment = ifelse(algorithm == "adapt", "Experiment 2", "Experiment 2"))
+
+#Change the way algorithm is coded for exp 2 
+data.complete = data.complete %>% ungroup()%>% mutate(algorithm = ifelse(algorithm == "adapt", "Adaptive","Adaptive"))
+data.complete$algorithm = as.factor(data.complete$algorithm)
+
+data.complete = data.complete %>% ungroup()%>% 
+  mutate(responsibility = ifelse(responsibility == "driver" | responsibility == "Driver", "Driver",
+                                ifelse(responsibility == "automation" | responsibility == "Automation", "Automation", 0)))
+
+data.complete$responsibility = as.factor(data.complete$responsibility)
+
+save(data.complete, file = "Combined_Exp_Data_6_26_19.RData")
+
 ```
 ```{r}
 #####DATA MANIPULATION DRIVER RESPONSE TO ALG SWITCH#####
