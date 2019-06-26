@@ -11,7 +11,6 @@ Try executing this chunk by clicking the *Run* button within the chunk or by pla
 #####LOAD DATA AND PACKAGES#####
 setwd("/Users/morganprice/dissertation/Exps_Combined_Chapter5")
 
-
 library(tidyverse) 
 library(broom)
 library(afex) 
@@ -22,27 +21,26 @@ rm(list = ls(all = TRUE))
 
 #####LOAD DATA FROM BOTH EXPERIMENTS#####
 #LOAD DATA FROM EXPERIMENT 1 & RENAME
-# load("/Users/morganprice/Documents/Dissertation/Analysis/Exp1_Chapter3/CC_Toyota_CLEAN_3_03_17.RData") 
-##Select variables of interest from the dataset & ONLY INCLUDE participants in ADAPTIVE CONDITION- EXPERIMENT 1 
-# data.exp1 = filter(data.demand, algorithm == "adapt")
-# 
-# #Select variables of interest from the dataset - EXPERIMENT 2 
-# data.exp1 = data.exp1 %>% ungroup() %>% 
-#   select(window.time.1, pid, algorithm, responsibility, relevant.hazard, hazard, driver.position.1, auto.mode,
-#           eyes.on.road.m, lane.deviation.2, logstreams.1, mili.wallclock, wallclock, speed, traffic.present.all,
-#          distance.traffic.m, traffic.demand)
+load("/Users/morganprice/dissertation/Exps_Combined_Chapter5/EXP1_MANIPULATED_DATA_6_26_19.RData")
+
+#Keep original copy of dataframe
+original.data.exp1 = data.exp1
+
+#Select variables of interest from the dataset & ONLY INCLUDE participants in ADAPTIVE CONDITION- EXPERIMENT 2 
+data.exp1 = filter(data.exp1, algorithm == "Adaptive")
 
 #LOAD DATA FROM EXPERIMENT 2 & RENAME
 load("/Users/morganprice/dissertation/Exps_Combined_Chapter5/EXP2_MANIPULATED_DATA_6_25_19.RData")
 
-#Select variables of interest from the dataset & ONLY INCLUDE participants in ADAPTIVE CONDITION- EXPERIMENT 2 
-original.data = data.exp2
-data.exp2 = filter(data.exp2, algorithm == "adapt")
+#Keep original copy of dataframe
+original.data.exp2 = data.exp2
 
-# data.exp2 = data.exp2 %>% ungroup() %>% 
-#   select(window.time.1, pid, algorithm, responsibility, relevant.hazard, hazard, driver.position.1, auto.mode,
-#           eyes.on.road.m, lane.deviation.2, logstreams.1, mili.wallclock, wallclock, speed, traffic.present.all,
-#          distance.traffic.m, traffic.demand)
+#Select variables of interest from the dataset & ONLY INCLUDE participants in ADAPTIVE CONDITION- EXPERIMENT 2 
+data.exp2 = filter(data.exp2, algorithm == "adapt")
+data.exp2 = data.exp2 %>% ungroup()%>% mutate(algorithm = ifelse(algorithm == "adapt", "Adaptive",0))
+
+#Merge data sets
+data.complete = merge(data.exp1, data.exp2)
 ```
 ```{r}
 #####DATA MANIPULATION DRIVER RESPONSE TO ALG SWITCH#####
