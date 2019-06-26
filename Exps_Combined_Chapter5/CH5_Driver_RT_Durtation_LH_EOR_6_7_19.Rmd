@@ -1,0 +1,243 @@
+---
+title: "Chapter 5 Analysis - Driver Response Time and Response Durtation - VCA & Latent Hazards EOR Response - Instructions"
+output: html_notebook
+---
+
+This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. When you execute code within the notebook, the results appear beneath the code. 
+
+Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Cmd+Shift+Enter*. 
+
+```{r}
+#####LOAD DATA AND PACKAGES#####
+setwd("/Users/morganprice/dissertation/Exps_Combined_Chapter5")
+
+
+library(tidyverse) 
+library(broom)
+library(afex) 
+library(ggthemes) 
+library(knitr) 
+
+rm(list = ls(all = TRUE))
+
+#####LOAD DATA FROM BOTH EXPERIMENTS#####
+#LOAD DATA FROM EXPERIMENT 1 & RENAME
+# load("/Users/morganprice/Documents/Dissertation/Analysis/Exp1_Chapter3/CC_Toyota_CLEAN_3_03_17.RData") 
+##Select variables of interest from the dataset & ONLY INCLUDE participants in ADAPTIVE CONDITION- EXPERIMENT 1 
+# data.exp1 = filter(data.demand, algorithm == "adapt")
+# 
+# #Select variables of interest from the dataset - EXPERIMENT 2 
+# data.exp1 = data.exp1 %>% ungroup() %>% 
+#   select(window.time.1, pid, algorithm, responsibility, relevant.hazard, hazard, driver.position.1, auto.mode,
+#           eyes.on.road.m, lane.deviation.2, logstreams.1, mili.wallclock, wallclock, speed, traffic.present.all,
+#          distance.traffic.m, traffic.demand)
+
+#LOAD DATA FROM EXPERIMENT 2 & RENAME
+load("/Users/morganprice/dissertation/Exps_Combined_Chapter5/EXP2_MANIPULATED_DATA_6_25_19.RData")
+
+#Select variables of interest from the dataset & ONLY INCLUDE participants in ADAPTIVE CONDITION- EXPERIMENT 2 
+original.data = data.exp2
+data.exp2 = filter(data.exp2, algorithm == "adapt")
+
+# data.exp2 = data.exp2 %>% ungroup() %>% 
+#   select(window.time.1, pid, algorithm, responsibility, relevant.hazard, hazard, driver.position.1, auto.mode,
+#           eyes.on.road.m, lane.deviation.2, logstreams.1, mili.wallclock, wallclock, speed, traffic.present.all,
+#          distance.traffic.m, traffic.demand)
+```
+```{r}
+#####DATA MANIPULATION DRIVER RESPONSE TO ALG SWITCH#####
+###### Create variable for which alorithm is being experienced - use threshold for lane centering & lane keeping 
+data.exp2 = data.exp2 %>% ungroup() %>% group_by(pid, algorithm, responsibility)%>%
+  mutate(alg.exp = ifelse(auto.mode == 1 & lane.deviation.2 >= 0.3 | lane.deviation.2 <= -0.3, "lane keeping", 
+                          ifelse(auto.mode == 0, "automation off", "lane centering")),
+         adj.time = adj.instance.time+(instance-1)*80)
+
+#Create lag of alg.exp to compare the algorihtm the second before the LC deadband to make sure that the lane keeping algorihtm is clustered together
+data.exp2 = data.exp2 %>% ungroup()%>% group_by(pid, algorithm, responsibility) %>%
+  mutate(lag.alg.exp = lag(alg.exp),
+         lc.lk = ifelse(alg.exp == "lane centering" & lag.alg.exp == "lane keeping", "lane keeping", alg.exp))
+
+#Plot of lane position highlighting when automation was on or off
+ggplot(data.exp2)+
+geom_point(aes(window.time.1, lane.deviation.2, color = lc.lk), size = 0.5)+ #Denotes lane deviation when automation was on 
+theme_minimal()
+
+#Plot of lane position for one participant 
+a = filter(data.exp2, pid ==10)
+ggplot(a)+
+geom_point(aes(window.time.1, lane.deviation.2, color = lc.lk), size = 0.5)+ #Denotes lane deviation when automation was on 
+theme_minimal()
+
+#CREATE VARIABLE FOR WHEN ALGORIHTMS SWITCHED
+data.exp2 = data.exp2 %>% ungroup() %>% group_by(pid, algorithm, responsibility) %>%
+  mutate(deadband = ifelse(lc.lk == "lane centering", 0,
+                              ifelse(lc.lk == "lane keeping", 1, 10)),
+         deadband.lag = lag(deadband),
+         deadband.diff = deadband - deadband.lag,
+         algorithm.switch = ifelse(deadband.diff == 1, "LC to LK",
+                                   ifelse(deadband.diff == -1, "LK to LC",
+                                          ifelse(deadband.diff == 9, "LK to auto off",
+                                                 ifelse(deadband.diff == -10, "auto on LC",
+                                                        ifelse(deadband.diff == 10, "LC to auto off", 0))))))
+
+#Create new variable for the time that the algorithms switched from lane centerig to lane keeping
+data.exp2 = data.exp2 %>% ungroup() %>% group_by(pid, algorithm, responsibility) %>%
+  mutate(alg.lclk.switch.time = ifelse(algorithm.switch == "LC to LK", adj.time, NA),
+         alg.lklc.switch.time = ifelse(algorithm.switch == "LK to LC", adj.time, 0),
+         alg.lkoff.switch.time = ifelse(algorithm.switch == "LK to auto off", adj.time, 0),
+         alg.lcoff.switch.time = ifelse(algorithm.switch == "LC to auto off", adj.time, 0),
+         alg.autoonlc.switch.time = ifelse(algorithm.switch == "auto on LC", adj.time, 0))
+
+#Fill Alg Switch so that there are no NAss
+data.exp2 = data.exp2 %>% ungroup() %>% group_by(pid, algorithm, responsibility) %>%
+  fill(alg.lclk.switch.time, .direction = "down")
+
+#Replace NAs with 0 
+data.exp2$alg.lclk.switch.time[is.na(data.exp2$alg.lclk.switch.time)] <- 0 
+```
+
+```{r}
+###########CALCULCATE DRIVER EOR RESPONSE & DURATION OF RESPONSE###############
+#Create new variable that determines if they eyes are on road or off road using the threshold of 0.8 = eyes on road 
+a = filter(data.exp2, pid ==14)
+test = a %>% ungroup() %>% group_by(pid, algorithm, responsibility, adj.time)%>%
+  mutate(eor.threshold = ifelse (eyes.on.road.m >= 0.8, 1, eyes.on.road.m),
+         eye.on.time = ifelse (eor.threshold == 1, adj.time, 10000000))
+
+test = test %>% ungroup() %>% group_by(pid, algorithm, responsibility, alg.lclk.switch.time)%>%
+  mutate(eor.after.algswitch = min(eye.on.time))
+#test$eor.after.algswitch = tapply(test$eor.mani.2, test$alg.lclk.switch.time, min)
+```
+
+```{r}
+#####EXPLORATORY PLOTS & DATA MANIPULATION FOR GAZE BEHAVIOR INSIDE & OUTSIDE LH ZONES#####
+#Subset data inside latent hazards zones
+inside.lh.zone = filter(data.exp2, logstreams.1 > 0) 
+
+#Mean eyes on road & mean automation use inside latent hazard zone for each participant
+m.inside.lh.zone = inside.lh.zone %>% ungroup() %>% group_by(pid, algorithm, responsibility) %>%
+  summarize(lh.in.zone.eyes.on.road.m = mean(eyes.on.road.m),
+            lh.in.zone.automation.use = mean(auto.mode))
+
+#Mean eyes on road & mean automation use inside latent hazard zone for each participant
+resp.inside.lh.zone = inside.lh.zone %>% ungroup() %>% group_by(responsibility) %>%
+  summarize(lh.in.resp.zone.eyes.on.road.m = mean(eyes.on.road.m),
+            lh.in.resp.zone.automation.use = mean(auto.mode))
+
+#Mean eyes on road & mean automation use inside latent hazard zone for each participant
+time.inside.lh.zone = inside.lh.zone %>% ungroup() %>% group_by(window.time.1, algorithm, responsibility) %>%
+  summarize(lh.in.zone.eyes.on.road.m = mean(eyes.on.road.m),
+            lh.in.zone.automation.use = mean(auto.mode))
+ 
+#Plot of eyes on road over time inside latent hazard zones
+ggplot(time.inside.lh.zone)+
+geom_point(aes(window.time.1, lh.in.zone.eyes.on.road.m))+
+facet_wrap(~responsibility)+
+theme_minimal()
+
+#Plot of eyes on road over time inside latent hazard zones
+ggplot(time.inside.lh.zone)+
+geom_point(aes(window.time.1, lh.in.zone.automation.use))+
+facet_wrap(~responsibility)+
+theme_minimal()
+
+#Subset data outsode of latent hazard zones 
+outside.lh.zone = filter(data.exp2, logstreams.1 == 0) 
+
+#Mean eyes on road & mean automation use inside latent hazard zone for each participant
+m.outside.lh.zone = outside.lh.zone %>% ungroup() %>% group_by(pid, algorithm, responsibility) %>%
+  summarize(lh.out.zone.eyes.on.road.m = mean(eyes.on.road.m),
+            lh.out.zone.automation.use = mean(auto.mode))
+
+#Mean eyes on road & mean automation use inside latent hazard zone for each participant
+resp.outside.lh.zone = outside.lh.zone %>% ungroup() %>% group_by(responsibility) %>%
+  summarize(lh.out.zone.eyes.on.road.m = mean(eyes.on.road.m),
+            lh.out.zone.automation.use = mean(auto.mode))
+
+```
+
+```{r}
+############### SUBSET DATA INTO TWO DATA FRAMES 
+#Create variable for inside and outside lh zone
+lh.zone.timeline = data.exp2 %>% ungroup() %>% group_by(pid, algorithm, responsibility) %>%
+  mutate(lh.zone.in.out = ifelse(logstreams.1 > 0, "inside", "outside"))
+
+#Summarize automation use across drive
+lh.zone.timeline.sum = lh.zone.timeline %>% ungroup() %>% group_by(window.time.1, responsibility) %>%
+  summarize(m.eor = mean(eyes.on.road.m),
+            in.out.lh.zone = first(lh.zone.in.out))
+
+#EOR Inside and Outside LH Zones 
+eor_lh_zone_timeline.plot = ggplot()+
+    geom_point(data = lh.zone.timeline.sum, aes(window.time.1, m.eor, color = in.out.lh.zone), size = .1, alpha=.9)+
+    geom_hline(data = resp.inside.lh.zone, aes(yintercept = lh.in.resp.zone.eyes.on.road.m))+
+    facet_wrap(~responsibility)+
+    labs(x= "Time (s)", y="Eyes on road")+
+    theme_minimal()
+
+eor_lh_zone_timeline.plot
+
+#Save plot
+#ggsave(plot = eor_lh_zone_timeline.plot, filename = "EXP2_eor_lh_zone_timeline.pdf", width = 7, height = 4.25, dpi = 400)
+
+
+#Summarize automation use across drive
+lh.zone.auto.timeline.sum = lh.zone.timeline %>% ungroup() %>% group_by(window.time.1, responsibility) %>%
+  summarize(m.auto.mode = mean(auto.mode),
+            in.out.lh.zone = first(lh.zone.in.out))
+
+#EOR Inside and Outside LH Zones 
+auto_lh_zone_timeline.plot = ggplot()+
+    geom_point(data = lh.zone.auto.timeline.sum, aes(window.time.1, m.auto.mode, color = in.out.lh.zone), size = .1, alpha=.9)+
+    geom_hline(data = resp.inside.lh.zone, aes(yintercept = lh.in.resp.zone.automation.use))+
+    facet_wrap(~responsibility)+
+    labs(x= "Time (s)", y="Eyes on road")+
+    theme_minimal()
+
+auto_lh_zone_timeline.plot
+
+#Save plot
+#ggsave(plot = auto_lh_zone_timeline.plot, filename = "EXP2_auto_use_lh_zone_timeline.pdf", width = 7, height = 4.25, dpi = 400)
+
+```
+
+```{r}
+############## STATISTICAL MODELS ##############
+```
+
+```{r}
+##############EXPLORATORY PLOTS###########################
+# #Lane position for one participant over time 
+# ggplot(filter(data.exp2, pid ==10))+
+# geom_line(aes(window.time.1, lane.deviation.2))+
+# theme_minimal()
+# 
+# #Plot of lane position highlighting when automation was on or off
+# ggplot(data.exp2)+
+# geom_line(aes(window.time.1, lane.deviation.2, color = auto.mode))+
+# facet_wrap(~pid)+
+# theme_minimal()
+# 
+# #Work first on one participants data
+# temp = filter(data.exp2, pid == 10)
+# 
+# #Create a varaible to look at changes in lane position when automation was engaged only 
+# temp = temp %>% ungroup()%>% group_by(pid,algorithm, responsibility)%>%
+#   mutate(alg.switch.auto.on = ifelse(auto.mode == 1, lane.deviation.2, 0))
+# 
+# #Plot of lane position highlighting when automation was on or off
+# ggplot(temp)+
+# #geom_line(aes(window.time.1, lane.deviation.2), color = "grey")+
+# geom_line(aes(window.time.1, alg.switch.auto.on), color = "red")+ #Denotes lane deviation when automation was on 
+# facet_wrap(~pid)+
+# theme_minimal()
+# 
+# #Create lag for lane deviation & substract from lane deviation
+# temp = temp %>% ungroup()%>% group_by(pid,algorithm, responsibility)%>%
+#  mutate(lag.lane.dev = lag(alg.switch.auto.on),
+#         alg.switch = alg.switch.auto.on - lag.lane.dev)
+```
+
+Add a new chunk by clicking the *Insert Chunk* button on the toolbar or by pressing *Cmd+Option+I*.
+
+When you save the notebook, an HTML file containing the code and output will be saved alongside it (click the *Preview* button or press *Cmd+Shift+K* to preview the HTML file).
