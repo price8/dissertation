@@ -147,7 +147,7 @@ data.exp1 = filter(data.exp1, algorithm == "Adaptive")
 
 #Keep original copy of dataframe
 data.exp1 = data.exp1 %>% ungroup() %>%
-  mutate(experiment = "Experiment 2",
+  mutate(experiment = "Experiment 1",
          algorithm = "State-based Adaptive")
 
 #Change the way algorithm is coded for exp 2 
@@ -253,10 +253,15 @@ reaction.exp1 = filter(reaction, eye.on.before.algswtich  == "EOR after Alg Swit
 #Merge the two datasets for reaction time 
 reaction.df = rbind(reaction.exp1, reaction.exp2)
 
+
+
 ```
 
 ```{r}
-#####EXPLORATORY PLOTS & DATA MANIPULATION FOR GAZE BEHAVIOR INSIDE & OUTSIDE LH ZONES#####
+#####DATA MANIPULATION FOR GAZE BEHAVIOR INSIDE & OUTSIDE LH ZONES#####
+#Merge original dataframes 
+latent.hazard.df = rbind(data.exp1, data.exp2)
+
 #Create grand mean for each level of responsibility
 grand.m.inside.lh.zone = lh.analysis %>% ungroup() %>% group_by(responsibility) %>%
   summarize(eor.grand.m = mean(eyes.on.road.m),
