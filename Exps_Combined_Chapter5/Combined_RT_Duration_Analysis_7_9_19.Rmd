@@ -1,0 +1,36 @@
+---
+title: "Combined Experiment Data RT Duration Analysis"
+output: html_notebook
+---
+
+This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. When you execute code within the notebook, the results appear beneath the code. 
+
+Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Cmd+Shift+Enter*. 
+
+```{r}
+#####LOAD DATA AND PACKAGES#####
+setwd("/Users/morganprice/dissertation/Exps_Combined_Chapter5")
+
+library(tidyverse) 
+library(broom)
+library(afex) 
+library(ggthemes) 
+library(knitr) 
+
+rm(list = ls(all = TRUE))
+
+#LOAD DATA FROM EXPERIMENT 2 & RENAME
+reaction.exp2 = load("/Users/morganprice/dissertation/Exps_Combined_Chapter5/Driver_Reaction_Dataframe_Exp2_7_9_19.RData")
+
+#LOAD DATA FROM EXPERIMENT 2 & RENAME
+reaction.exp1 = load("/Users/morganprice/dissertation/Exps_Combined_Chapter5/Driver_Reaction_Dataframe_Exp1_7_9_19.RData")
+
+#Combine Exp1 & Exp 2 data frames
+reaction.df = rbind(reaction.exp1, reaction.exp2)
+
+#Run statistical model of DV ~ algorithm + responsibility + traffic.demand + (1|pid) + (1|relevant.hazard)
+```
+
+Add a new chunk by clicking the *Insert Chunk* button on the toolbar or by pressing *Cmd+Option+I*.
+
+When you save the notebook, an HTML file containing the code and output will be saved alongside it (click the *Preview* button or press *Cmd+Shift+K* to preview the HTML file).
