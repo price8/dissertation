@@ -196,6 +196,73 @@ data.exp2 = data.exp2 %>% ungroup() %>% group_by(pid, algorithm, responsibility)
                                                         ifelse(deadband.diff == 10, "LC to auto off", "X"))))))
 ```
 
+```{r}
+#Create new variable for the time that the algorithms switched from lane centerig to lane keeping
+data.exp2 = data.exp2 %>% ungroup() %>% group_by(pid, algorithm, responsibility) %>%
+  mutate(alg.lclk.switch.time = ifelse(algorithm.switch.2 == "LC to LK", adj.time, NA),
+         alg.lklc.switch.time = ifelse(algorithm.switch.2 == "LK to LC", adj.time, 0),
+         alg.lkoff.switch.time = ifelse(algorithm.switch.2 == "LK to auto off", adj.time, 0),
+         alg.lcoff.switch.time = ifelse(algorithm.switch.2 == "LC to auto off", adj.time, 0),
+         alg.autoonlc.switch.time = ifelse(algorithm.switch.2 == "auto on LC", adj.time, 0))
+
+#Fill Alg Switch so that there are no NAss
+data.exp2 = data.exp2 %>% ungroup() %>% group_by(pid, algorithm, responsibility) %>%
+  fill(alg.lclk.switch.time, .direction = "down")
+
+#Replace NAs with 0 
+data.exp2$alg.lclk.switch.time[is.na(data.exp2$alg.lclk.switch.time)] <- 0 
+
+#Create new variable that determines if they eyes are on road or off road using the threshold of 0.8 = eyes on road 
+data.exp2 = data.exp2 %>% ungroup() %>% group_by(pid, algorithm, responsibility, adj.time)%>%
+  mutate(eor.threshold = ifelse (eyes.on.road.m >= 0.8, 1, 0),
+         eye.on.time = ifelse (eor.threshold == 1, adj.time, 10000000),
+         eoffr.threshold = ifelse (eyes.on.road.m <= 0.2, 1, 0),
+         eye.off.time = ifelse (eoffr.threshold == 1, adj.time, 10000000)) %>% ungroup() %>%
+  mutate (lead.eor.threshold = lead(eor.threshold),
+         eye.on.before.algswtich = ifelse(algorithm.switch.2 == "LC to LK" & lead.eor.threshold == 1, "EOR before Alg Switch", 
+                                      ifelse(algorithm.switch.2 == "LC to LK" & lead.eor.threshold != 1,"EOR after Alg Switch", 0)))
+
+#Create variable that determines if the eyes were on road before the algorithm switched from lane centering to lane keeping
+#Create variable to calculate the reaction time for each algorithm switch when drivers' eyes were off road when the algortihm switched
+data.exp2 = data.exp2 %>% ungroup() %>% group_by(pid, algorithm, responsibility, alg.lclk.switch.time)%>%
+  mutate(eor.for.each.algswitch = ifelse(algorithm.switch.2 == "LC to LK" & eye.on.before.algswtich  == "EOR after Alg Switch",
+                                         min(eye.on.time), NA),
+         driver.reaction.time = ifelse(algorithm.switch.2 == "LC to LK" & eye.on.before.algswtich  == "EOR after Alg Switch",
+                                        eor.for.each.algswitch - alg.lclk.switch.time, 
+                                ifelse(algorithm.switch.2 == "LC to LK" & eye.on.before.algswtich  == "EOR before Alg Switch",
+                                        -1, 777)))
+
+#Fill Alg Switch so that there are no NAss
+data.exp2 = data.exp2 %>% ungroup() %>% group_by(pid, algorithm, responsibility) %>%
+  fill(eor.for.each.algswitch, .direction = "down")
+
+#Create variable to determine when the eyes were off road 
+#Create variable to calculate the duration of  drivers eyes on road after the algortihms switched
+data.exp2 = data.exp2 %>% ungroup() %>% group_by(pid, algorithm, responsibility, alg.lclk.switch.time)%>%
+  mutate(eoffr.time = ifelse(eye.off.time > eor.for.each.algswitch & eye.off.time != 10000000,
+                                           eye.off.time, 10000000),
+         eoffr.for.each.algswitch = min(eoffr.time),
+         reaction.duration = ifelse(algorithm.switch.2 == "LC to LK" & eye.on.before.algswtich  == "EOR after Alg Switch",
+                                    eoffr.for.each.algswitch - eor.for.each.algswitch, 777))
+
+#Denote in the data when there was no EOR reaction from the driver because their eyes were on road before the algorithms switched
+data.exp2 = data.exp2 %>% ungroup() %>% group_by(pid, algorithm, responsibility, alg.lclk.switch.time)%>%
+  mutate(reaction.duration = ifelse(driver.reaction.time == -1, 0, reaction.duration))
+
+#Create variables for which experiment the data is from and rename the algorithm as event-based 
+data.exp2 = data.exp2 %>% ungroup() %>%
+  mutate(experiment = "Experiment 2",
+         algorithm = "Event-based Adaptive")
+
+#select only relevant columns for the analysis 
+reaction = select(data.exp2, pid, algorithm, responsibility, experiment, adj.time, auto.mode, instance, traffic.demand, eyes.on.road.m, driver.reaction.time, reaction.duration, speed, hazard, relevant.hazard, lc.lk.clean, clean.deadband, algorithm.switch.2, alg.lclk.switch.time, eor.threshold, eye.on.time, eoffr.threshold, eye.off.time, eye.on.before.algswtich, eor.for.each.algswitch, eoffr.time, eoffr.for.each.algswitch)
+
+#Filter dataset to only include algorithm switches
+reaction = filter(reaction, eye.on.before.algswtich  == "EOR after Alg Switch" | eye.on.before.algswtich  == "EOR before Alg Switch")
+
+save(reaction, file = "Driver_Reaction_Dataframe_Exp2_7_9_19.RData")
+```
+
 Add a new chunk by clicking the *Insert Chunk* button on the toolbar or by pressing *Cmd+Option+I*.
 
 When you save the notebook, an HTML file containing the code and output will be saved alongside it (click the *Preview* button or press *Cmd+Shift+K* to preview the HTML file).
