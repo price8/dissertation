@@ -1,0 +1,201 @@
+---
+title: "Code to Determine Which Algorithm is Experienced & Algorithm Switches"
+output: html_notebook
+---
+
+This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. When you execute code within the notebook, the results appear beneath the code. 
+
+Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Cmd+Shift+Enter*. 
+
+```{r}
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library(glm4)
+library(glmrTest)
+library(stringr)
+library(zoo)
+library(iterators)
+
+#####DATA MANIPULATION FROM RAW DATA#######
+load("/Users/morganprice/Documents/Dissertation/Analysis/Exp2_Chapter4/RawData_to_CleanData_Manipulation_1_15_19/FULL_DATASET_RawData/LH_Traffic_Calculation_5_22_19.RData") 
+
+data.traffic = arrange(data.traffic,time)
+
+data.traffic  = data.traffic %>% ungroup() %>% group_by(pid)%>%
+  mutate(window.time.1 = time %/% 1)
+
+#######CLOSEST TRAFFIC CALCULATION######
+#Create variables for vehicles that are visible and infront of the driver 
+data.traffic = data.traffic %>% ungroup() %>% group_by(pid, responsibility, algorithm) %>% 
+  mutate(traffic.present.1 = ifelse(distance.driver.1 >=0, distance.driver.1, 100000),
+         traffic.present.2 = ifelse(distance.driver.2 >=0, distance.driver.2, 100000),
+         traffic.present.3 = ifelse(distance.driver.3 >=0, distance.driver.3, 100000),
+         traffic.present.4 = ifelse(distance.driver.4 >=0, distance.driver.4, 100000),
+         traffic.present.5 = ifelse(distance.driver.5 >=0, distance.driver.5, 100000),
+         traffic.present.6 = ifelse(distance.driver.6 >=0, distance.driver.6, 100000),
+         traffic.present.7 = ifelse(distance.driver.7 >=0, distance.driver.7, 100000),
+         traffic.present.8 = ifelse(distance.driver.8 >=0, distance.driver.8, 100000),
+         traffic.present.9 = ifelse(distance.driver.9 >=0, distance.driver.9, 100000),
+         traffic.present.10 = ifelse(distance.driver.10 >=0, distance.driver.10, 100000),
+         traffic.present.11 = ifelse(distance.driver.11 >=0, distance.driver.11, 100000),
+         traffic.present.12 = ifelse(distance.driver.12 >=0, distance.driver.12, 100000),
+         traffic.present.13 = ifelse(distance.driver.13 >=0, distance.driver.13, 100000),
+         traffic.present.14 = ifelse(distance.driver.14 >=0, distance.driver.14, 100000),
+         traffic.present.15 = ifelse(distance.driver.15 >=0, distance.driver.15, 100000),
+         traffic.present.16 = ifelse(distance.driver.16 >=0, distance.driver.16, 100000),
+         traffic.present.17 = ifelse(distance.driver.17 >=0, distance.driver.17, 100000),
+         traffic.present.18 = ifelse(distance.driver.18 >=0, distance.driver.18, 100000),
+         traffic.present.19 = ifelse(distance.driver.19 >=0, distance.driver.19, 100000),
+         traffic.present.20 = ifelse(distance.driver.20 >=0, distance.driver.20, 100000)
+  )
+
+#Calculate the closest ADO to the driver
+data.traffic$traffic.present.all = apply(data.traffic[,114:133], 1, min)
+
+#Create variable for "relevant" hazards
+data.traffic = data.traffic %>% ungroup() %>% group_by(pid, responsibility, algorithm) %>%
+  mutate(relevant.hazard = ifelse(hazard == 1|hazard == 111, 1,
+                                  ifelse(hazard == 2|hazard == 222, 2,
+                                         ifelse(hazard== 3|hazard == 333,3,
+                                                ifelse(hazard == 4|hazard == 444, 4,0)))))
+```
+
+```{r}
+##########VELOCITY CALCULATION##############
+velocity.df = filter(data.traffic, algorithm == "adapt")
+
+#Arrange time
+velocity.df = velocity.df %>% ungroup() %>% group_by(pid, algorithm, responsibility) %>%
+  arrange(window.time.1) 
+
+#Create rolling mean of lane deviation
+#temp = rollapply(velocity.df$lane.deviation.2, 3, mean, align = 'right', fill = 0)
+n = 5
+
+velocity.df = velocity.df %>% ungroup() %>% group_by(pid, algorithm, responsibility) %>%
+  mutate(lag.lane.position = lag(lane.deviation.2, default = 0),
+         lag.time = lag(window.time.1, default = 0),
+         diff.time = window.time.1 - lag.time,
+         diff.position = lane.deviation.2 - lag.lane.position,
+         velocity = diff.position/diff.time,
+         ld.vel = abs(lane.deviation.2)*abs(velocity), 
+         roll.ld = rollapply(lane.deviation.2, 5, mean, align = 'right', fill = 0)) %>%
+         slice(n:n()) %>%
+  mutate(lag.roll.ld = lag(roll.ld, default = 0),
+         smooth.diff = roll.ld - lag.roll.ld,
+         smooth.velocity = smooth.diff/diff.time,
+         roll.ld.vel = abs(roll.ld)*abs(smooth.velocity),
+         sum.ld.vel = abs(roll.ld)+ (abs(smooth.velocity)*100))
+
+##############NEW WAY TO CODE ALGORITHM EXPEIERNECED##############
+#USES SUM LD*VEL to determine algorihtmn 
+velocity.df = velocity.df %>% ungroup() %>% group_by(pid, algorithm, responsibility) %>%
+    mutate(deadband = ifelse(auto.mode == 0, 10,
+                            ifelse(auto.mode == 1 & roll.ld.vel >= 0.002, 1,0))) 
+
+#USES SUM LD + VEL to determine algorihtmn 
+velocity.df = velocity.df %>% ungroup() %>% group_by(pid, algorithm, responsibility) %>%
+    mutate(alg.exp = ifelse(deadband == 0, "lane centering",
+                            ifelse(deadband == 1, "lane keeping", "automation off")))
+
+#USES SUM LD + VEL to determine algorihtmn 
+velocity.df = velocity.df %>% ungroup() %>% group_by(pid, algorithm, responsibility) %>%
+    mutate(deadband.2 = ifelse(auto.mode == 0, 10,
+                            ifelse(auto.mode == 1 & sum.ld.vel >= 0.4, 1,0))) 
+
+#USES SUM LD + VEL to determine algorihtmn 
+velocity.df = velocity.df %>% ungroup() %>% group_by(pid, algorithm, responsibility) %>%
+    mutate(lc.lk = ifelse(deadband.2 == 0, "lane centering",
+                            ifelse(deadband.2 == 1, "lane keeping", "automation off")))
+```
+
+```{r}
+######SUMMARIZE @ the one second level#####
+data.complete = velocity.df %>% ungroup() %>% group_by(window.time.1, pid, algorithm, responsibility) %>%
+  summarize(relevant.hazard = first(relevant.hazard), 
+             hazard = first(hazard),
+             aux.button = first(aux.button),
+             driver.position.1 = first(driver.position.1),
+             auto.mode = first(auto.mode), 
+             auto.mode.m = mean(auto.mode),
+             velocity = first(velocity),
+             velocity.m = mean(velocity),
+             ld.vel = first(ld.vel),
+             alg.exp = first(alg.exp),
+             deadband = first(deadband),
+             deadband.2 = first(deadband.2),
+             smooth.velocity = first(smooth.velocity),
+             roll.ld = first(roll.ld),
+             roll.ld.vel = first(roll.ld.vel),
+             sum.ld.vel = first(sum.ld.vel),
+             lc.lk = first(lc.lk),
+             eyes.on.road.m = mean(eyes.on.road),
+             lane.deviation.1 = first(lane.deviation.1),
+             lane.deviation.2 = first(lane.deviation.2),
+             lane.deviation.3 = first(lane.deviation.3),
+             lane.deviation.4 = first(lane.deviation.4),
+             logstreams.1 = first(logstreams.1),
+             mili.wallclock = first(mili.wallclock),
+             wallclock = first(wallclock),
+             accel.pedal.position = first(accel.pedal.position),
+             auto.transmission.mode = first(auto.transmission.mode),
+             brake.force = first(brake.force),
+             speed = first(speed),
+             traffic.present.all = first(traffic.present.all), 
+             distance.traffic.m = mean(traffic.present.all)
+  )
+
+#####DEMAND FOR TRAFFIC####
+beta = 1
+theta = -10^-3
+
+data.complete = data.complete %>% ungroup() %>% group_by(pid, responsibility, algorithm, window.time.1) %>%
+  mutate(traffic.demand = beta*exp(theta*distance.traffic.m),
+         traffic.demand = ifelse(traffic.demand == Inf, 0, traffic.demand))
+```
+
+```{r}
+#####DATA MANIPULATION DRIVER RESPONSE TO ALG SWITCH#####
+data.exp2 = sub.instance.df
+
+###### Create variable for which alorithm is being experienced - use threshold for lane centering & lane keeping 
+data.exp2 = data.exp2 %>% ungroup() %>% group_by(pid, algorithm, responsibility)%>%
+  mutate(adj.time = adj.instance.time+(instance-1)*80)
+
+#### Fix issues with coding algorithm
+data.exp2 = data.exp2 %>% ungroup()%>% group_by(pid, algorithm, responsibility) %>%
+  mutate(lag.lc.lk = lag(lc.lk, default = "0"),
+         lead.lc.lk = lead(lc.lk, default = "0"),
+         lc.lk.clean = ifelse(lc.lk == "lane keeping" & lag.lc.lk == "lane centering" &
+                          lead.lc.lk  == "lane centering", "lane centering",
+                          ifelse(lc.lk == "lane centering" & lag.lc.lk == "lane keeping" &
+                                  lead.lc.lk  == "lane keeping", "lane keeping",
+                                 ifelse(lc.lk == "lane keeping" & lag.lc.lk == "lane centering" &
+                                          lead.lc.lk == "lane keeping", "lane keeping",
+                                         ifelse(lc.lk == "lane keeping" & lag.lc.lk == "lane centering" &
+                                                lead.lc.lk == "automation off", "lane keeping", lc.lk)))))
+
+data.exp2 = data.exp2 %>% ungroup()%>% group_by(pid, algorithm, responsibility) %>%
+  mutate(lc.lk.clean = ifelse(pid == 22 & adj.time == 703, "lane keeping", lc.lk.clean),
+         clean.deadband = ifelse(lc.lk.clean == "lane centering", 0,
+                                 ifelse(lc.lk.clean == "lane keeping", 1, 10)))
+
+data.exp2 = data.exp2 %>% ungroup()%>% group_by(pid, algorithm, responsibility) %>%
+  mutate(clean.deadband = ifelse(adj.time<=4, 0, clean.deadband))
+
+
+#USES SUM LD + VEL to determine deadband 
+data.exp2 = data.exp2 %>% ungroup() %>% group_by(pid, algorithm, responsibility) %>%
+        mutate(lag.clean.deadband = lag(clean.deadband),
+         deadband.diff = clean.deadband - lag.clean.deadband,
+         algorithm.switch.2 = ifelse(deadband.diff == 1, "LC to LK",
+                                   ifelse(deadband.diff == -1, "LK to LC",
+                                          ifelse(deadband.diff == 9, "LK to auto off",
+                                                 ifelse(deadband.diff == -10, "auto on LC",
+                                                        ifelse(deadband.diff == 10, "LC to auto off", "X"))))))
+```
+
+Add a new chunk by clicking the *Insert Chunk* button on the toolbar or by pressing *Cmd+Option+I*.
+
+When you save the notebook, an HTML file containing the code and output will be saved alongside it (click the *Preview* button or press *Cmd+Shift+K* to preview the HTML file).
