@@ -75,8 +75,8 @@ n = 5
 
 velocity.df = velocity.df %>% ungroup() %>% group_by(pid, algorithm, responsibility) %>%
   mutate(lag.lane.position = lag(lane.deviation.2, default = 0),
-         lag.time = lag(window.time.1, default = 0),
-         diff.time = window.time.1 - lag.time,
+         lag.time = lag(time, default = 0),
+         diff.time = time - lag.time,
          diff.position = lane.deviation.2 - lag.lane.position,
          velocity = diff.position/diff.time,
          ld.vel = abs(lane.deviation.2)*abs(velocity), 
@@ -102,7 +102,7 @@ velocity.df = velocity.df %>% ungroup() %>% group_by(pid, algorithm, responsibil
 #USES SUM LD + VEL to determine algorihtmn 
 velocity.df = velocity.df %>% ungroup() %>% group_by(pid, algorithm, responsibility) %>%
     mutate(deadband.2 = ifelse(auto.mode == 0, 10,
-                            ifelse(auto.mode == 1 & sum.ld.vel >= 0.4, 1,0))) 
+                            ifelse(auto.mode == 1 & sum.ld.vel >= 16.5, 1,0))) 
 
 #USES SUM LD + VEL to determine algorihtmn 
 velocity.df = velocity.df %>% ungroup() %>% group_by(pid, algorithm, responsibility) %>%
@@ -167,6 +167,7 @@ data.exp2 = data.exp2 %>% ungroup() %>% group_by(pid, algorithm, responsibility)
 data.exp2 = data.exp2 %>% ungroup()%>% group_by(pid, algorithm, responsibility) %>%
   mutate(lag.lc.lk = lag(lc.lk, default = "0"),
          lead.lc.lk = lead(lc.lk, default = "0"),
+         lead2.lc.lk = lead(lc.lk, n = 2L, default = "0"),
          lc.lk.clean = ifelse(lc.lk == "lane keeping" & lag.lc.lk == "lane centering" &
                           lead.lc.lk  == "lane centering", "lane centering",
                           ifelse(lc.lk == "lane centering" & lag.lc.lk == "lane keeping" &
@@ -177,18 +178,35 @@ data.exp2 = data.exp2 %>% ungroup()%>% group_by(pid, algorithm, responsibility) 
                                                 lead.lc.lk == "automation off", "lane keeping", lc.lk)))))
 
 data.exp2 = data.exp2 %>% ungroup()%>% group_by(pid, algorithm, responsibility) %>%
-  mutate(lc.lk.clean = ifelse(pid == 22 & adj.time == 703, "lane keeping", lc.lk.clean),
-         clean.deadband = ifelse(lc.lk.clean == "lane centering", 0,
-                                 ifelse(lc.lk.clean == "lane keeping", 1, 10)))
+  mutate(clean.deadband = ifelse(lc.lk.clean == "lane centering", 0,
+                                 ifelse(lc.lk.clean == "lane keeping", 1, 10)),
+         lag.clean.deadband = lag(clean.deadband),
+         lead.clean.deadband = lead(clean.deadband),
+         lag.lead.lc = ifelse(lag.clean.deadband == 0 & lead.clean.deadband == 0, 100, 0),
+         lag.lead.lk = ifelse(lag.clean.deadband != 0 & lead.clean.deadband != 0, 100, 1))
+
+#Run final check on deadband data to ensure that the deadband is correctly coded 
+data.exp2 = data.exp2 %>% ungroup()%>% group_by(pid, algorithm, responsibility) %>%
+  mutate(mismatch.lc = lag.lead.lc - clean.deadband,
+         mismatch.lk = lag.lead.lk - clean.deadband,
+         final.deadband = ifelse(mismatch.lc == 99, 0, 
+                                 ifelse(mismatch.lk == 100, 1, clean.deadband)))
+
+#Fix individual issues for LH4 that occured between adj.time > 940 & adj.time < 955
+data.exp2 = data.exp2 %>% ungroup()%>% group_by(pid, algorithm, responsibility) %>%
+  mutate(flag = ifelse(auto.mode == 1 & pid == 2 | pid == 28 | pid == 52, 1, 0),
+         final.deadband = ifelse(flag == 1 & adj.time >940 & adj.time< 955, 1, final.deadband))
 
 data.exp2 = data.exp2 %>% ungroup()%>% group_by(pid, algorithm, responsibility) %>%
-  mutate(clean.deadband = ifelse(adj.time<=4, 0, clean.deadband))
+  mutate(final.deadband = ifelse(adj.time<=4, 0, final.deadband),
+         final.deadband.cat = ifelse(final.deadband == 1, "lane keeping",
+                                  ifelse(final.deadband == 0, "lane centering", "automation off")))
 
 
 #USES SUM LD + VEL to determine deadband 
 data.exp2 = data.exp2 %>% ungroup() %>% group_by(pid, algorithm, responsibility) %>%
-        mutate(lag.clean.deadband = lag(clean.deadband),
-         deadband.diff = clean.deadband - lag.clean.deadband,
+        mutate(lag.final.deadband = lag(final.deadband),
+          deadband.diff = final.deadband - lag.final.deadband,
          algorithm.switch.2 = ifelse(deadband.diff == 1, "LC to LK",
                                    ifelse(deadband.diff == -1, "LK to LC",
                                           ifelse(deadband.diff == 9, "LK to auto off",
@@ -212,6 +230,8 @@ data.exp2 = data.exp2 %>% ungroup() %>% group_by(pid, algorithm, responsibility)
 #Replace NAs with 0 
 data.exp2$alg.lclk.switch.time[is.na(data.exp2$alg.lclk.switch.time)] <- 0 
 
+
+
 #Create new variable that determines if they eyes are on road or off road using the threshold of 0.8 = eyes on road 
 data.exp2 = data.exp2 %>% ungroup() %>% group_by(pid, algorithm, responsibility, adj.time)%>%
   mutate(eor.threshold = ifelse (eyes.on.road.m >= 0.8, 1, 0),
@@ -222,8 +242,6 @@ data.exp2 = data.exp2 %>% ungroup() %>% group_by(pid, algorithm, responsibility,
          eye.on.before.algswtich = ifelse(algorithm.switch.2 == "LC to LK" & lead.eor.threshold == 1, "EOR before Alg Switch", 
                                       ifelse(algorithm.switch.2 == "LC to LK" & lead.eor.threshold != 1,"EOR after Alg Switch", 0)))
 
-#Create variable that determines if the eyes were on road before the algorithm switched from lane centering to lane keeping
-#Create variable to calculate the reaction time for each algorithm switch when drivers' eyes were off road when the algortihm switched
 data.exp2 = data.exp2 %>% ungroup() %>% group_by(pid, algorithm, responsibility, alg.lclk.switch.time)%>%
   mutate(eor.for.each.algswitch = ifelse(algorithm.switch.2 == "LC to LK" & eye.on.before.algswtich  == "EOR after Alg Switch",
                                          min(eye.on.time), NA),
@@ -232,12 +250,9 @@ data.exp2 = data.exp2 %>% ungroup() %>% group_by(pid, algorithm, responsibility,
                                 ifelse(algorithm.switch.2 == "LC to LK" & eye.on.before.algswtich  == "EOR before Alg Switch",
                                         -1, 777)))
 
-#Fill Alg Switch so that there are no NAss
 data.exp2 = data.exp2 %>% ungroup() %>% group_by(pid, algorithm, responsibility) %>%
   fill(eor.for.each.algswitch, .direction = "down")
 
-#Create variable to determine when the eyes were off road 
-#Create variable to calculate the duration of  drivers eyes on road after the algortihms switched
 data.exp2 = data.exp2 %>% ungroup() %>% group_by(pid, algorithm, responsibility, alg.lclk.switch.time)%>%
   mutate(eoffr.time = ifelse(eye.off.time > eor.for.each.algswitch & eye.off.time != 10000000,
                                            eye.off.time, 10000000),
@@ -245,22 +260,19 @@ data.exp2 = data.exp2 %>% ungroup() %>% group_by(pid, algorithm, responsibility,
          reaction.duration = ifelse(algorithm.switch.2 == "LC to LK" & eye.on.before.algswtich  == "EOR after Alg Switch",
                                     eoffr.for.each.algswitch - eor.for.each.algswitch, 777))
 
-#Denote in the data when there was no EOR reaction from the driver because their eyes were on road before the algorithms switched
 data.exp2 = data.exp2 %>% ungroup() %>% group_by(pid, algorithm, responsibility, alg.lclk.switch.time)%>%
   mutate(reaction.duration = ifelse(driver.reaction.time == -1, 0, reaction.duration))
 
-#Create variables for which experiment the data is from and rename the algorithm as event-based 
+#Keep original copy of dataframe
 data.exp2 = data.exp2 %>% ungroup() %>%
   mutate(experiment = "Experiment 2",
          algorithm = "Event-based Adaptive")
 
-#select only relevant columns for the analysis 
-reaction = select(data.exp2, pid, algorithm, responsibility, experiment, adj.time, auto.mode, instance, traffic.demand, eyes.on.road.m, driver.reaction.time, reaction.duration, speed, hazard, relevant.hazard, lc.lk.clean, clean.deadband, algorithm.switch.2, alg.lclk.switch.time, eor.threshold, eye.on.time, eoffr.threshold, eye.off.time, eye.on.before.algswtich, eor.for.each.algswitch, eoffr.time, eoffr.for.each.algswitch)
+reaction.exp2 = select(data.exp2, pid, algorithm, responsibility, experiment, adj.time, auto.mode, instance, traffic.demand, eyes.on.road.m, driver.reaction.time, reaction.duration, speed, hazard, relevant.hazard, lc.lk.clean, clean.deadband, algorithm.switch.2, alg.lclk.switch.time, eor.threshold, eye.on.time, eoffr.threshold, eye.off.time, eye.on.before.algswtich, eor.for.each.algswitch, eoffr.time, eoffr.for.each.algswitch)
 
-#Filter dataset to only include algorithm switches
-reaction = filter(reaction, eye.on.before.algswtich  == "EOR after Alg Switch" | eye.on.before.algswtich  == "EOR before Alg Switch")
+reaction.exp2 = filter(reaction, eye.on.before.algswtich  == "EOR after Alg Switch" | eye.on.before.algswtich  == "EOR before Alg Switch")
 
-save(reaction, file = "Driver_Reaction_Dataframe_Exp2_7_9_19.RData")
+save(reaction.exp2, file = "Driver_Reaction_Dataframe_Exp2_7_11_19.RData")
 ```
 
 Add a new chunk by clicking the *Insert Chunk* button on the toolbar or by pressing *Cmd+Option+I*.
