@@ -16,19 +16,127 @@ library(broom)
 library(afex) 
 library(ggthemes) 
 library(knitr) 
+library(lme4) 
+library (lsmeans)
+library(lmerTest)
+library(nlme)
+#lme, lmeTest, psycho
 
 rm(list = ls(all = TRUE))
 
-#LOAD DATA FROM EXPERIMENT 2 & RENAME
-reaction.exp2 = load("/Users/morganprice/dissertation/Exps_Combined_Chapter5/Driver_Reaction_Dataframe_Exp2_7_9_19.RData")
+####LOAD DATA
+load("/Users/morganprice/dissertation/Exps_Combined_Chapter5/Exp1_CLEAN_RT_Dataframe_7_27_19.RData")
+
+######RT - 5 SECONDS#########
+data.exp1 = data.exp1 %>% ungroup() %>% group_by(pid, algorithm, responsibility) %>%
+  mutate(reaction.zero.point = ifelse(eor.alg.trigger.time.down == window.time.1, 0, -100),
+         reaction.time.minus.5 = ifelse(reaction.zero.point == 0, window.time.1 - 6, NA))
+        
+data.exp1 = data.exp1 %>% ungroup()%>% group_by(pid, algorithm, responsibility) %>%
+  fill(reaction.time.minus.5, .direction = "up")
+
+data.exp1 = data.exp1 %>% ungroup() %>% group_by(pid, algorithm, responsibility,eor.alg.trigger.time.down) %>%
+  mutate(reaction.before.test = window.time.1 - reaction.time.minus.5,
+         reaction.before.test.clean = ifelse(reaction.before.test<0,0, reaction.before.test),
+         reaction.before = ifelse(reaction.before.test.clean!=0, reaction.before.test.clean - 6, reaction.before.test.clean))
+
+######RT + DURATION#########
+data.exp1 = data.exp1 %>% ungroup() %>% group_by (pid, algorithm, responsibility)%>%
+  mutate(rt.after.algorithm.switch = ifelse(e.on.time==window.time.1, "after switch", NA),
+         rt.duration.after.switch = e.on.time + reaction.duration)
+
+data.exp1 = data.exp1 %>% ungroup()%>% group_by(pid, algorithm, responsibility) %>%
+  fill(rt.duration.after.switch, .direction = "up")
+
+data.exp1 = data.exp1 %>% ungroup() %>% group_by (pid, algorithm, responsibility)%>%
+  mutate(rt.duration.keep = ifelse(window.time.1<=rt.duration.after.switch, window.time.1, NA))
+
+data.exp1 = data.exp1 %>% ungroup() %>% group_by (pid, algorithm, responsibility)%>%
+  mutate(rt.count.after.swtich = rt.duration.keep - eor.alg.trigger.time.down)
+
+data.exp1 = data.exp1 %>% ungroup() %>% group_by (pid, algorithm, responsibility)%>%
+  mutate(rt.timeline = ifelse(reaction.before!=0, reaction.before, rt.count.after.swtich))
+
+####TESTING CODE
+ data.exp1 = data.exp1 %>% ungroup() %>% group_by (pid, algorithm, responsibility)%>%
+   mutate(rt.on.timeline = ifelse(e.on.time!=0, 0, 1),)
+ 
+ data.exp1 = data.exp1 %>% ungroup() %>% group_by (pid, algorithm, responsibility)%>%
+   mutate(reaction.duration.fill = reaction.duration)
+ 
+ data.exp1 = data.exp1 %>% ungroup() %>% group_by (pid, algorithm, responsibility)%>%
+   fill(reaction.duration.fill, .direction = "down")
+ 
+data.exp1 = data.exp1 %>% ungroup() %>% group_by (pid, algorithm, responsibility)%>%
+   mutate(rt.duration.on.timeline = ifelse(reaction.duration.fill == rt.timeline, 0.25,0))
+
+data.exp1 = data.exp1 %>% ungroup() %>% group_by (pid, algorithm, responsibility)%>%
+   mutate(rt.timeline = ifelse(pid == 45 & rt.timeline == -1200, 0,
+                               ifelse(pid == 45 & rt.timeline == -1199, 1, 
+                                      ifelse(pid == 45 & rt.timeline == -1198, 2, rt.timeline))))
+
+data.exp1 = data.exp1 %>% ungroup() %>% group_by (pid, algorithm, responsibility)%>%
+   mutate(rt.timeline = ifelse(e.on.time!=1 & rt.timeline == -5, 3, rt.timeline))
+
+data.rt.sum = data.exp1 %>% ungroup() %>% group_by(pid, algorithm, responsibility, rt.timeline) %>%
+  summarize(lane.deviation.m = mean(lane.deviation.2))
+
+rt.on.rt.timeline = ggplot()+
+  geom_line(data = data.rt.sum, aes(rt.timeline, lane.deviation.m), color = "grey")+ 
+  geom_point(data = filter(data.exp1, rt.on.timeline!=1), aes(rt.timeline, rt.on.timeline), color = "black")+
+  xlim(-10, 100)+
+  labs(x= "Time", y = "Lane Deviation")+
+  theme_minimal()
+rt.on.rt.timeline
+
+ggsave(plot = rt.on.rt.timeline, filename = "RT_on_Adj_RT_Timeline.pdf", width = 3.25, height = 4.5, dpi = 400)
+
+pid.rt.on.rt.timeline = ggplot()+
+  geom_line(data = data.rt.sum, aes(rt.timeline, lane.deviation.m), color = "grey")+ 
+  geom_point(data = filter(data.exp1, rt.on.timeline!=1), aes(rt.timeline, rt.on.timeline), color = "black")+
+  xlim(-10, 50)+
+  labs(x= "Time", y = "Lane Deviation")+
+  facet_wrap(~pid)+
+  theme_minimal()
+pid.rt.on.rt.timeline
+
+ggsave(plot = pid.rt.on.rt.timeline, filename = "PID_RTs_on_Adj_RT_Timeline.pdf", width = 3.25, height = 4.5, dpi = 400)
+
+```
+
+```{r}
+#LOAD DATA FROM EXPERIMENT 1 & RENAME
+load("/Users/morganprice/dissertation/Exps_Combined_Chapter5/Driver_Reaction_Dataframe_Exp1_7_27_19.RData")
+reaction.exp1 = select(reaction, pid, algorithm, responsibility, experiment, adj.time, auto.mode, instance, traffic.demand, eyes.on.road.m, driver.reaction.time, reaction.duration, speed, hazard, relevant.hazard)
 
 #LOAD DATA FROM EXPERIMENT 2 & RENAME
-reaction.exp1 = load("/Users/morganprice/dissertation/Exps_Combined_Chapter5/Driver_Reaction_Dataframe_Exp1_7_9_19.RData")
+load("/Users/morganprice/dissertation/Exps_Combined_Chapter5/Driver_Reaction_Dataframe_Exp2_7_13_19.RData")
+
+reaction.exp2 = select(reaction.exp2, pid, algorithm, responsibility, experiment, adj.time, auto.mode, instance, traffic.demand, eyes.on.road.m, driver.reaction.time, reaction.duration, speed, hazard, relevant.hazard)
 
 #Combine Exp1 & Exp 2 data frames
 reaction.df = rbind(reaction.exp1, reaction.exp2)
 
+```
+
+```{r}
 #Run statistical model of DV ~ algorithm + responsibility + traffic.demand + (1|pid) + (1|relevant.hazard)
+## Model of EOR
+# EOR~algorithm, responsibility, traffic demand, reaction time, duration, 1|pid, 1|relevant hazard 
+reaction.df$responsibility=as.factor(reaction.df$responsibility)
+
+#Linear mixed effects model 
+#Models do not include latent hazard because the model did not converge with lh included
+#Model 1 - Driver Reaciton Time 
+mod_1 = lmer(driver.reaction.time ~ algorithm * responsibility * traffic.demand + (1|pid), reaction.df) 
+summary(mod_1)
+anova(mod_1)
+
+#Model 1 - Duration of Driver Response 
+mod_2 = lmer(reaction.duration ~ algorithm * responsibility * traffic.demand + (1|pid), reaction.df) 
+summary(mod_2)
+anova(mod_2)
+
 ```
 
 Add a new chunk by clicking the *Insert Chunk* button on the toolbar or by pressing *Cmd+Option+I*.
