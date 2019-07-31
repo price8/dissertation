@@ -1,0 +1,163 @@
+---
+title: "Combined Experiment Data - Latent Hazrd Analysis"
+output: html_notebook
+---
+
+This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. When you execute code within the notebook, the results appear beneath the code. 
+
+Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Cmd+Shift+Enter*. 
+
+```{r}
+#LOAD DATA FROM EXPERIMENT 1 & RENAME
+load("/Users/morganprice/dissertation/Exps_Combined_Chapter5/Exp1_CLEAN_RT_Dataframe_7_29_19.RData")
+latent.hazard.exp1 = select(data.exp1, pid, algorithm, responsibility, adj.time, auto.mode, traffic.demand, f.traffic.demand, eyes.on.road.m, speed, hazard, relevant.hazard)
+
+#Keep original copy of dataframe
+latent.hazard.exp1 = latent.hazard.exp1 %>% ungroup() %>%
+  mutate(experiment = "Experiment 1",
+         algorithm = "State-based Adaptive")
+
+latent.hazard.exp1 = latent.hazard.exp1 %>% ungroup() %>% group_by (pid, algorithm, responsibility)%>%
+   mutate(pid.adj = pid + 0.1)
+
+#LOAD DATA FROM EXPERIMENT 2 & RENAME
+load("/Users/morganprice/dissertation/Exps_Combined_Chapter5/Exp2_CLEAN_RT_Dataframe_7_29_19.RData")
+
+latent.hazard.exp2 = select(data.exp2, pid, algorithm, responsibility, adj.time, auto.mode, traffic.demand,  f.traffic.demand, eyes.on.road.m, speed, hazard, relevant.hazard)
+
+#Keep original copy of dataframe
+latent.hazard.exp2 = latent.hazard.exp2 %>% ungroup() %>%
+  mutate(experiment = "Experiment 2",
+         algorithm = "Event-based Adaptive")
+
+latent.hazard.exp2 = latent.hazard.exp2 %>% ungroup() %>% group_by (pid, algorithm, responsibility)%>%
+   mutate(pid.adj = pid + 0.2)
+
+#Combine Exp1 & Exp 2 data frames
+latent.hazard.df = rbind(latent.hazard.exp1, latent.hazard.exp2)
+
+latent.hazard.df = latent.hazard.df %>% ungroup() %>%
+  mutate(responsibility = ifelse(responsibility == "driver", "Driver", "Automation"))
+
+
+```
+
+```{r}
+############ SUMMARIZE FOR EOR & AUTOMATION PLOTS #######
+latent.hazard.df = latent.hazard.df %>% ungroup() %>% group_by(pid.adj, algorithm, responsibility) %>%
+  mutate(hazard.y.n = ifelse(relevant.hazard !=0, 1, 0))
+  
+lh.plots = latent.hazard.df %>% ungroup() %>% group_by(pid.adj, algorithm, responsibility, hazard.y.n) %>%
+  summarize(eor.m = mean(eyes.on.road.m),
+             auto.use.m = mean(auto.mode))
+
+lh.plots.grand.m = latent.hazard.df %>% ungroup() %>% group_by(algorithm, responsibility, hazard.y.n) %>%
+  summarize(eor.grand.m = mean(eyes.on.road.m),
+             auto.use.grand.m = mean(auto.mode))
+
+# no.lh.plots.grand.m = filter(latent.hazard.df, hazard.y.n == 0) %>% ungroup() %>% group_by(algorithm, responsibility, hazard.y.n) %>%
+#   summarize(eor.cond.m = mean(eyes.on.road.m),
+#              auto.use.cond.m = mean(auto.mode))
+# 
+
+#POINTS AND LINE Plot for EOR for each LH zone
+library(grid)
+eor.latet.hazard.zone = ggplot() + 
+  geom_point(data = lh.plots, aes(x=hazard.y.n, y=eor.m), color = "black", shape =21, alpha = 0.5)+
+  geom_line(data = lh.plots.grand.m, aes(x=hazard.y.n, y=eor.grand.m), color = "black")+
+  geom_point(data=lh.plots.grand.m, mapping=aes(x=hazard.y.n, y=eor.grand.m), color="black") + 
+  facet_grid(responsibility~algorithm)+
+  scale_x_continuous(breaks=c(0.00,1.00),
+        labels=c("No\n latent hazards", "Latent\n hazard"))+
+  labs(x= "Latent Hazard", y = "Eyes on Road")+
+  theme_minimal()+
+  theme(panel.spacing.x=unit(2, "lines"))
+  
+
+ggsave(plot = eor.latet.hazard.zone, filename = "EOR_Latent_Hazard_Zones.pdf", width = 8, height = 4.25, dpi = 400)
+
+#POINTS AND LINE Plot for AUTOMATION USE for each LH zone
+auto.use.latet.hazard.zone  = ggplot() + 
+  geom_point(data = lh.plots, aes(x=hazard.y.n, y=auto.use.m), color = "black", shape =21, alpha = 0.5)+
+  geom_line(data = lh.plots.grand.m, aes(x=hazard.y.n, y=auto.use.grand.m), color = "black")+
+  geom_point(data=lh.plots.grand.m, mapping=aes(x=hazard.y.n, y=auto.use.grand.m), color="black") + 
+  facet_grid(responsibility~algorithm)+
+  scale_x_continuous(breaks=c(0.00,1.00),
+        labels=c("No\n latent hazards", "Latent\n hazard"))+
+  labs(x= "Latent Hazard", y = "Automation Use")+
+  theme_minimal()+
+  theme(panel.spacing.x=unit(2, "lines"))
+
+ggsave(plot = auto.use.latet.hazard.zone, filename = "Automation_Use_Latent_Hazard_Zones.pdf", width = 8, height = 4.25, dpi = 400)
+
+```
+
+```{r}
+##########VIOLIN PLOTS###################
+# lh.plots.sum = latent.hazard.df %>% ungroup() %>% group_by(algorithm, responsibility, hazard.y.n) %>%
+#   summarize(eor.sum.m = mean(eyes.on.road.m),
+#             eor.m.sd = sd(eyes.on.road.m),
+#             min.eor = eor.sum.m - eor.m.sd,
+#             max.eor = eor.sum.m + eor.m.sd,
+#             auto.use.sum.m = mean(auto.mode),
+#             auto.use.sd = sd(auto.mode),
+#             min.auto.use = auto.use.sum.m - auto.use.sd,
+#             max.auto.use = auto.use.sum.m + auto.use.sd)
+# 
+# #These plots are not included in paper. 
+# #Violin Plot for EOR for each LH zone
+# ggplot() + 
+#   geom_point(data = lh.plots, aes(x=hazard.y.n, y=eor.m), colour = "grey", alpha = 0.5)+
+#   geom_violin(data = lh.plots.sum, aes(x=hazard.y.n, y=eor.sum.m), colour = "grey", fill="gray", alpha = 0.5,
+#               trim=FALSE)+
+#   geom_point(data = lh.plots.sum, aes(x=hazard.y.n, y=eor.sum.m), color = "black", shape =21, alpha = 0.2 )+
+#   geom_pointrange(data=lh.plots.sum, mapping=aes(x=hazard.y.n, y=eor.sum.m, ymin=min.eor,
+#                                                       ymax=max.eor), size=0.5, color="black") + 
+#   facet_grid(responsibility~algorithm)+
+#   labs(x= "Algorithm", y = "General Eyes on Road")+
+#   theme_minimal()
+# 
+# 
+# #Violin Plot for Automation Use for each LH zone
+# ggplot() + 
+#   geom_violin(data = lh.plots, aes(x=algorithm, y=auto.use.m), colour = "grey", fill="gray", alpha = 0.5,
+#               trim=FALSE)+
+#   geom_point(data = lh.plots, aes(x=algorithm, y=auto.use.m), color = "black", shape =21, alpha = 0.5 )+
+#   geom_pointrange(data=lh.plots.sum, mapping=aes(x=algorithm, y=auto.use.sum.m, ymin=min.auto.use,
+#                                                       ymax=max.auto.use), size=0.5, color="black") + 
+#   facet_grid(responsibility~hazard.y.n)+
+#   labs(x= "Algorithm", y = "Automation Use")+
+#   theme_minimal()
+
+
+```
+
+```{r}
+################## STATISTICAL MODELS FOR DRIVER REACTION TIME AND REACTION DURATION ###################
+#Run statistical model of DV ~ algorithm + responsibility + traffic.demand + (1|pid) + (1|relevant.hazard)
+#Models do not include latent hazard because the model did not converge with lh included
+lh.analysis = latent.hazard.df %>% ungroup() %>% group_by(pid.adj, algorithm, responsibility, relevant.hazard, f.traffic.demand)%>%
+  summarize(eor.m = mean(eyes.on.road.m),
+             auto.use.m = mean(auto.mode))
+
+#Model 1 - Driver Reaciton Time 
+lh_mod_1 = lmer(eor.m ~ algorithm * responsibility * f.traffic.demand + (1|pid.adj) + (1|relevant.hazard), lh.analysis) 
+summary(lh_mod_1)
+anova(lh_mod_1)
+
+#Model 2 - Duration of Driver Response 
+lh_mod_2 = lmer(auto.use.m ~ algorithm * responsibility * f.traffic.demand + (1|pid.adj) + (1|relevant.hazard), lh.analysis) 
+summary(lh_mod_2)
+anova(lh_mod_2)
+
+plot(ranef(lh_mod_1))
+plot(ranef(lh_mod_2))
+
+plot(lh_mod_1)
+plot(lh_mod_2)
+
+```
+
+Add a new chunk by clicking the *Insert Chunk* button on the toolbar or by pressing *Cmd+Option+I*.
+
+When you save the notebook, an HTML file containing the code and output will be saved alongside it (click the *Preview* button or press *Cmd+Shift+K* to preview the HTML file).
