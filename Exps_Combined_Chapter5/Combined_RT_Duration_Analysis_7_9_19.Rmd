@@ -20,12 +20,13 @@ library(lme4)
 library (lsmeans)
 library(lmerTest)
 library(nlme)
-#lme, lmeTest, psycho
+library(ggforce)
+
 
 rm(list = ls(all = TRUE))
 
 ####LOAD DATA
-load("/Users/morganprice/dissertation/Exps_Combined_Chapter5/Exp1_CLEAN_RT_Dataframe_7_27_19.RData")
+load("/Users/morganprice/dissertation/Exps_Combined_Chapter5/Exp1_CLEAN_RT_Dataframe_7_29_19.RData")
 
 ######RT - 5 SECONDS#########
 data.exp1 = data.exp1 %>% ungroup() %>% group_by(pid, algorithm, responsibility) %>%
@@ -42,8 +43,7 @@ data.exp1 = data.exp1 %>% ungroup() %>% group_by(pid, algorithm, responsibility,
 
 ######RT + DURATION#########
 data.exp1 = data.exp1 %>% ungroup() %>% group_by (pid, algorithm, responsibility)%>%
-  mutate(rt.after.algorithm.switch = ifelse(e.on.time==window.time.1, "after switch", NA),
-         rt.duration.after.switch = e.on.time + reaction.duration)
+  mutate(rt.duration.after.switch = e.on.time + reaction.duration)
 
 data.exp1 = data.exp1 %>% ungroup()%>% group_by(pid, algorithm, responsibility) %>%
   fill(rt.duration.after.switch, .direction = "up")
@@ -57,9 +57,8 @@ data.exp1 = data.exp1 %>% ungroup() %>% group_by (pid, algorithm, responsibility
 data.exp1 = data.exp1 %>% ungroup() %>% group_by (pid, algorithm, responsibility)%>%
   mutate(rt.timeline = ifelse(reaction.before!=0, reaction.before, rt.count.after.swtich))
 
-####TESTING CODE
  data.exp1 = data.exp1 %>% ungroup() %>% group_by (pid, algorithm, responsibility)%>%
-   mutate(rt.on.timeline = ifelse(e.on.time!=0, 0, 1),)
+   mutate(rt.on.timeline = ifelse(e.on.time!=0, lane.deviation.2, 100))
  
  data.exp1 = data.exp1 %>% ungroup() %>% group_by (pid, algorithm, responsibility)%>%
    mutate(reaction.duration.fill = reaction.duration)
@@ -67,75 +66,379 @@ data.exp1 = data.exp1 %>% ungroup() %>% group_by (pid, algorithm, responsibility
  data.exp1 = data.exp1 %>% ungroup() %>% group_by (pid, algorithm, responsibility)%>%
    fill(reaction.duration.fill, .direction = "down")
  
-data.exp1 = data.exp1 %>% ungroup() %>% group_by (pid, algorithm, responsibility)%>%
-   mutate(rt.duration.on.timeline = ifelse(reaction.duration.fill == rt.timeline, 0.25,0))
+# data.exp1 = data.exp1 %>% ungroup() %>% group_by (pid, algorithm, responsibility)%>%
+#    mutate(rt.duration.on.timeline = ifelse(rt.duration.after.switch == window.time.1, lane.deviation.2, 0))
 
+ data.exp1 = data.exp1 %>% ungroup() %>% group_by (pid, algorithm, responsibility)%>%
+   mutate(rt.duration.on.timeline = ifelse(reaction.duration.fill == rt.timeline, lane.deviation.2,0))
+ 
 data.exp1 = data.exp1 %>% ungroup() %>% group_by (pid, algorithm, responsibility)%>%
    mutate(rt.timeline = ifelse(pid == 45 & rt.timeline == -1200, 0,
                                ifelse(pid == 45 & rt.timeline == -1199, 1, 
                                       ifelse(pid == 45 & rt.timeline == -1198, 2, rt.timeline))))
+#testing removing this
+data.exp1 = data.exp1 %>% ungroup() %>% group_by (pid, algorithm, responsibility)%>%
+   mutate(rt.timeline = ifelse(e.on.time!=1 & rt.timeline == -5, rt.count.after.swtich, rt.timeline))
+
+data.exp1 = data.exp1 %>% ungroup() %>% group_by (pid, algorithm, responsibility, eor.alg.trigger.time.down)%>%
+   mutate(min.rt.timeline = min(rt.timeline)) %>% ungroup() %>%
+  group_by(pid, algorithm, responsibility) %>%
+  mutate(rt.timeline.instance = ifelse(rt.timeline == min.rt.timeline,1,0),
+          r.instance = cumsum(rt.timeline.instance)) 
+
+data.exp1= data.exp1 %>% ungroup() %>% group_by (pid, algorithm, responsibility)%>%
+   mutate(rt.timeline = ifelse(pid == 21 & window.time.1<=111, reaction.before.test, rt.on.timeline),
+          rt.timeline = ifelse(pid == 72 & window.time.1<=106, reaction.before.test, rt.on.timeline))
+
+# data.exp1 = data.exp1 %>% ungroup() %>% group_by (pid, algorithm, responsibility)%>%
+#   mutate(rt.duration.clean = e.on.time + reaction.duration)
+# 
+# data.exp1 = data.exp1 %>% ungroup()%>% group_by(pid, algorithm, responsibility, r.instance) %>%
+#   fill(rt.duration.clean, .direction = "up")
+
+# data.exp1 = data.exp1 %>% ungroup() %>% group_by (pid, algorithm, responsibility)%>%
+#    mutate(rt.duration.on.timeline = ifelse(rt.duration.clean == window.time.1, lane.deviation.2, 100))
+
+# data.exp1 = data.exp1 %>% ungroup() %>% group_by (pid, algorithm, responsibility)%>%
+#    mutate(e.on.manip = ifelse(e.on.time != 0 , e.on.time, NA))
+# 
+# data.exp1 = data.exp1 %>% ungroup()%>% group_by(pid, algorithm, responsibility, r.instance) %>%
+#   fill(e.on.manip, .direction = "down")
+#           
+# data.exp1 = data.exp1 %>% ungroup() %>% group_by (pid, algorithm, responsibility)%>%
+#    mutate(color.rt.duration.on.timeline = ifelse(window.time.1 >= e.on.manip & window.time.1 <= rt.duration.clean, 1, 0))
+
+data.exp1$r.instance = data.exp1$r.instance
+data.exp1$color.rt.duration.on.timeline = data.exp1$color.rt.duration.on.timeline
 
 data.exp1 = data.exp1 %>% ungroup() %>% group_by (pid, algorithm, responsibility)%>%
-   mutate(rt.timeline = ifelse(e.on.time!=1 & rt.timeline == -5, 3, rt.timeline))
+   mutate(pid.adj = pid + 0.1)
 
-data.rt.sum = data.exp1 %>% ungroup() %>% group_by(pid, algorithm, responsibility, rt.timeline) %>%
-  summarize(lane.deviation.m = mean(lane.deviation.2))
+data.exp1 = data.exp1 %>% ungroup() %>% group_by (pid, algorithm, responsibility, r.instance)%>%
+    mutate(rt.timeline.clean = ifelse(reaction.duration.fill >= rt.timeline, lane.deviation.2,NA),
+           rt.timeline.clean = ifelse(pid.adj ==3.1 & window.time.1 <= 109, lane.deviation.2, rt.timeline.clean))
+           # rt.timeline.missing = ifelse(rt.duration.clean <= window.time.1, 0, 1),
+           # lag.1.rt.timeline = lag(rt.timeline.clean, default = 0),
+           # lag.2.rt.timeline = lag(rt.timeline.clean, n = 2L, default = 0),
+           # lag.3.rt.timeline = lag(rt.timeline.clean, n = 3L, default = 0),
+           # lag.4.rt.timeline = lag(rt.timeline.clean, n = 4L, default = 0))
+           # 
+# data.exp1$rt.timeline.clean[is.na(data.exp1$rt.timeline.clean)] <- 0 
 
+#######DEBUG ISSUES WITH ENDING LD AT DURATION##########
+a = filter(data.exp1, pid ==3 & rt.timeline.clean !=0)
+
+#########REACTION TIME PLOTTED ON ADJUSTED RT TIMELINE WITH ALG SWITCH == 0 ###############
 rt.on.rt.timeline = ggplot()+
-  geom_line(data = data.rt.sum, aes(rt.timeline, lane.deviation.m), color = "grey")+ 
-  geom_point(data = filter(data.exp1, rt.on.timeline!=1), aes(rt.timeline, rt.on.timeline), color = "black")+
-  xlim(-10, 100)+
-  labs(x= "Time", y = "Lane Deviation")+
+  geom_path(data = filter(data.exp1, rt.timeline >= -5 & rt.timeline<=100), aes(rt.timeline, lane.deviation.2, group = r.instance), color = "grey")+ 
+  geom_point(data = filter(data.exp1, rt.duration.on.timeline!=100), aes(rt.timeline, rt.duration.on.timeline), color = "red", size = 0.7, alpha = 0.8)+
+  geom_point(data = filter(data.exp1, rt.on.timeline!=100), aes(rt.timeline, rt.on.timeline), color = "black", shape =21, alpha = 0.5)+
+  labs(x= "Time (s)", y = "Lane Deviation")+
+  xlim(-5, 50)+
+  ylim(-1,1)+
   theme_minimal()
-rt.on.rt.timeline
 
 ggsave(plot = rt.on.rt.timeline, filename = "RT_on_Adj_RT_Timeline.pdf", width = 3.25, height = 4.5, dpi = 400)
 
+#########FACET WRAP PID ~ REACTION TIME PLOTTED ON ADJUSTED RT TIMELINE WITH ALG SWITCH == 0 ###############
 pid.rt.on.rt.timeline = ggplot()+
-  geom_line(data = data.rt.sum, aes(rt.timeline, lane.deviation.m), color = "grey")+ 
-  geom_point(data = filter(data.exp1, rt.on.timeline!=1), aes(rt.timeline, rt.on.timeline), color = "black")+
-  xlim(-10, 50)+
-  labs(x= "Time", y = "Lane Deviation")+
+  geom_path(data = filter(data.exp1, rt.timeline >= -5 & rt.timeline<=100), aes(rt.timeline, lane.deviation.2, group = r.instance), color = "grey")+
+  geom_point(data = filter(data.exp1, rt.duration.on.timeline!=0), aes(rt.timeline, rt.duration.on.timeline), color = "red", size = 0.7, alpha = 0.8)+
+  geom_point(data = filter(data.exp1, rt.on.timeline!=100), aes(rt.timeline, rt.on.timeline), color = "black", shape =21, alpha = 0.5)+
+  labs(x= "Time (s)", y = "Lane Deviation")+
+ # xlim(-5, 50)+
+  #ylim(-1,1)+
   facet_wrap(~pid)+
   theme_minimal()
-pid.rt.on.rt.timeline
 
 ggsave(plot = pid.rt.on.rt.timeline, filename = "PID_RTs_on_Adj_RT_Timeline.pdf", width = 3.25, height = 4.5, dpi = 400)
 
+
+#########FACET WRAP PID ~ REACTION TIME PLOTTED ON ADJUSTED RT TIMELINE WITH ALG SWITCH == 0 ###############
+pid.rt.on.rt.timeline.stop.duration = ggplot()+
+  geom_path(data = filter(data.exp1, rt.timeline.clean !=0), aes(rt.timeline, rt.timeline.clean, group = r.instance), color = "grey")+
+  geom_point(data = filter(data.exp1, rt.duration.on.timeline!=0), aes(rt.timeline, rt.duration.on.timeline, group = r.instance), color = "red", size = 0.7, alpha = 0.8)+
+  geom_point(data = filter(data.exp1, rt.on.timeline!=100), aes(rt.timeline, rt.on.timeline, group = r.instance), color = "black", shape =21, alpha = 0.5)+
+  labs(x= "Time (s)", y = "Lane Deviation")+
+  xlim(-5, 100)+
+  #ylim(-1,1)+
+  facet_wrap(~pid)+
+  theme_minimal()
+
+ggsave(plot = pid.rt.on.rt.timeline.stop.duration, filename = "PID_RTs_on_Adj_RT_Timeline_End_At_Duration.pdf", width = 8, height = 4.25, dpi = 400)
+
+  ggplot()+
+  geom_path(data = filter(data.exp2, rt.timeline >= -5 & rt.timeline<=100), aes(rt.timeline, rt.timeline.clean, group = r.instance), color = "grey")+
+  geom_point(data = filter(data.exp2, rt.duration.on.timeline!=100), aes(rt.timeline, rt.duration.on.timeline, group = r.instance), color = "red", size = 0.7, alpha = 0.8)+
+  geom_point(data = filter(data.exp2, rt.on.timeline!=100), aes(rt.timeline, rt.on.timeline, group = r.instance), color = "black", shape =21, alpha = 0.5)+
+  labs(x= "Time", y = "Lane Deviation")+
+  xlim(-5, 50)+
+  #ylim(-1,1)+
+  facet_wrap(~pid)+
+  theme_minimal()
+######UNUSED CODE FOR THIS CHUNK######
+#Timeline of the experimental drive. Lane deviation is on black, grey lines denote when algorithm was triggered and switched from lan centering to lane keeping. 
+# plot.data.exp1 = data.exp1 %>% ungroup() %>% group_by(pid, algorithm, responsibility) %>%
+#   mutate(e.on.time.y.n = ifelse(e.on.time!= 0, 1, 0),
+#          eor.alg.trigger.time.y.n = ifelse(eor.alg.trigger.time > 0, 1, 0))
+
+```
+
+```{r}
+#######################TIMELINE PLOT WITH ALGORITHM SWITCHES - EXPERIMENT 1#################
+data.exp1 = data.exp1 %>% ungroup() %>% group_by(pid, algorithm, responsibility) %>%
+  mutate(alg.switch = ifelse(eor.alg.trigger.time != 0, adj.time, 0))
+
+eor.timeline.with.alg.switch.exp1 = ggplot()+
+  geom_path(data = data.exp1, aes(adj.time, lane.deviation.2), color = "black", size = 0.5)+
+  geom_vline(data = filter(data.exp1, alg.switch != 0), aes(xintercept = alg.switch), color = "black", size = 0.2, alpha = 0.5)+
+  facet_wrap(~pid)+
+   labs(x= "Time (s)", y = "Lane Deviation")+
+   theme_minimal()
+
+ggsave(plot = eor.timeline.with.alg.switch.exp1, filename = "EXP1_EOR_timeline_with_ALG_switch.pdf", width = 8, height = 4.25, dpi = 400)
+
+#######################EOR ACROSS THE DRIVER PLOT########################
+eor.with.threshold.exp1 = ggplot()+
+  geom_path(data = data.exp1, aes(adj.time, eyes.on.road.m), color = "grey", size = 0.5)+
+  geom_point(data = filter(data.exp1, e.off.below.threshold.m != 1), aes(adj.time, e.off.below.threshold.m), color = "red",  size = 0.5, alpha = 0.5)+
+  facet_wrap(~pid)+
+    labs(x= "Time (s)", y = "Eyes on Road")+
+   theme_minimal()
+
+ggsave(plot = eor.with.threshold.exp1, filename = "EXP1_EOR_timeline_with_EOR_threshold.pdf", width = 8, height = 4.25, dpi = 400)
+######TESTING PLOT######
+# myColors <- c("#E50D0D", "#291733")
+# data.exp1 = data.exp1 %>% ungroup() %>% group_by(pid, algorithm, responsibility) %>%
+#   mutate(automation.on.off = ifelse(auto.mode == 1, "automtion on", "automation off"))
+# 
+# 
+# ggplot()+
+#   geom_line(data = data.exp1, aes(adj.time, lane.deviation.2, color = automation.on.off), size = 0.5)+
+#   geom_vline(data = filter(data.exp1, alg.switch != 0), aes(xintercept = alg.switch), color = "black", size = 0.2, alpha = 0.5)+
+#   scale_color_manual(values=myColors)+
+#   facet_wrap(~pid)+
+#   labs(x= "Time (s)", y = "Lane Deviation")+
+#   theme_minimal()
+# 
+# ggplot()+
+#   geom_path(data = filter(data.exp2, pid !=8), aes(adj.time, lane.deviation.2, color = as.factor(auto.mode)), size = 0.5)+
+#   geom_vline(data = filter(data.exp2, algorithm.switch.2 == "LC to LK" & pid !=8), aes(xintercept = alg.switch), color = "black", size = 0.2, alpha = 0.5)+
+#   scale_color_manual(values=myColors)+
+#   facet_wrap(~pid)+
+#    labs(x= "Time (s)", y = "Lane Deviation")+
+#    theme_minimal()
+
+
+```
+
+```{r}
+load("/Users/morganprice/dissertation/Exps_Combined_Chapter5/Exp2_CLEAN_RT_Dataframe_8_04_19.RData")
+
+data.exp2 = data.exp2 %>% ungroup() %>% group_by(pid, algorithm, responsibility) %>%
+  mutate(alg.switch = ifelse(algorithm.switch.2 == "LC to LK", adj.time, 0))
+
+#######################TIMELINE PLOT WITH ALGORITHM SWITCHES - EXPERIMENT 2 #################
+eor.timeline.with.alg.switch.exp2 = ggplot()+
+  geom_path(data = filter(data.exp2, pid !=8), aes(adj.time, lane.deviation.2), color = "black", size = 0.5)+
+  geom_vline(data = filter(data.exp2, algorithm.switch.2 == "LC to LK" & pid !=8), aes(xintercept = alg.switch), color = "black", size = 0.2, alpha = 0.5)+
+  facet_wrap(~pid)+
+   labs(x= "Time (s)", y = "Lane Deviation")+
+   theme_minimal()
+
+ggsave(plot = eor.timeline.with.alg.switch.exp2, filename = "EXP2_EOR_timeline_with_ALG_switch.pdf", width = 9, height = 5, dpi = 400)
+
+
+##################PLOTS FOR PAPER #################
+ eor.with.eor.threshold.exp2 = ggplot()+
+  geom_path(data = filter(data.exp2, pid !=8), aes(adj.time, eyes.on.road.m), color = "grey", size = 0.5)+
+  geom_point(data = filter(data.exp2, e.off.below.threshold.m != 1 & pid !=8), aes(adj.time, e.off.below.threshold.m), color = "red",  size = 0.5, alpha = 0.5)+
+  facet_wrap(~pid)+
+    labs(x= "Time (s)", y = "Eyes on Road")+
+   theme_minimal()
+
+ggsave(plot = eor.with.eor.threshold.exp2, filename = "EXP2_EOR_timeline_with_EOR_threshold.pdf",width = 9, height = 5, dpi = 400)
+
+
+```
+
+```{r}
+######RT - 5 SECONDS########
+data.exp2 = data.exp2 %>% ungroup() %>% group_by(pid, algorithm, responsibility, window.time.1)%>%
+  mutate(eor.alg.trigger.time.down = ifelse(algorithm.switch.2 == "LC to LK", window.time.1, NA)) 
+
+data.exp2 = data.exp2 %>% ungroup() %>% fill(eor.alg.trigger.time.down, .direction = "down")
+
+data.exp2 = data.exp2 %>% ungroup() %>% group_by(pid, algorithm, responsibility) %>%
+  mutate(reaction.zero.point = ifelse(algorithm.switch.2 == "LC to LK", 0, -100),
+         reaction.time.minus.5 = ifelse(reaction.zero.point == 0, window.time.1 - 6, NA))
+        
+data.exp2 = data.exp2 %>% ungroup()%>% group_by(pid, algorithm, responsibility) %>%
+  fill(reaction.time.minus.5, .direction = "up")
+
+data.exp2 = data.exp2 %>% ungroup() %>% group_by(pid, algorithm, responsibility,eor.alg.trigger.time.down) %>%
+  mutate(reaction.before.test = window.time.1 - reaction.time.minus.5,
+         reaction.before.test.clean = ifelse(reaction.before.test<0,0, reaction.before.test),
+         reaction.before = ifelse(reaction.before.test.clean!=0, reaction.before.test.clean - 6, reaction.before.test.clean))
+
+######RT + DURATION#########
+data.exp2 = data.exp2 %>% ungroup() %>% group_by (pid, algorithm, responsibility)%>%
+  mutate(reaction.duration.na = ifelse(reaction.duration != 777, reaction.duration, NA))
+
+data.exp2 = data.exp2 %>% ungroup()%>% group_by(pid, algorithm, responsibility) %>%
+  fill(reaction.duration.na, .direction = "up")
+
+data.exp2 = data.exp2 %>% ungroup() %>% group_by (pid, algorithm, responsibility)%>%
+  mutate(rt.duration.keep = ifelse(window.time.1<=reaction.duration.na, window.time.1, NA))
+
+data.exp2 = data.exp2 %>% ungroup() %>% group_by (pid, algorithm, responsibility)%>%
+  mutate(rt.count.after.swtich = rt.duration.keep - eor.alg.trigger.time.down)
+
+data.exp2 = data.exp2 %>% ungroup() %>% group_by (pid, algorithm, responsibility)%>%
+   mutate(rt.timeline = ifelse(reaction.before!=0, reaction.before, rt.count.after.swtich))
+
+data.exp2 = data.exp2 %>% ungroup() %>% group_by(pid, algorithm, responsibility, window.time.1)%>%
+  mutate(rt.timeline = ifelse(algorithm.switch.2 == "LC to LK", 0, rt.timeline)) 
+
+data.exp2 = data.exp2 %>% ungroup() %>% group_by (pid, algorithm, responsibility)%>%
+   mutate(rt.on.timeline = ifelse(eor.for.each.algswitch == adj.time, lane.deviation.2, 100))
+
+data.exp2 = data.exp2 %>% ungroup() %>% group_by (pid, algorithm, responsibility)%>%
+   mutate(rt.duration.on.timeline = ifelse(eoffr.for.each.algswitch == adj.time, lane.deviation.2, 100))
+
+data.exp2 = data.exp2 %>% ungroup() %>% group_by (pid, algorithm, responsibility)%>%
+   mutate(rt.duration.in.rt.time = ifelse(rt.duration.on.timeline != 1, rt.timeline, NA))
+
+data.exp2 = data.exp2 %>% ungroup()%>% group_by(pid, algorithm, responsibility) %>%
+  fill(rt.duration.in.rt.time, .direction = "up")
+
+data.exp2 = data.exp2 %>% ungroup() %>% group_by(pid, algorithm, responsibility, window.time.1)%>%
+  mutate(lane.deviation.duration.end = ifelse(rt.timeline > rt.duration.in.rt.time, NA, lane.deviation.2)) 
+
+data.exp2 = data.exp2 %>% ungroup() %>% group_by (pid, algorithm, responsibility)%>%
+   mutate(pid.adj = pid + 0.2)
+
+data.exp2 = data.exp2 %>% ungroup() %>% group_by (pid, algorithm, responsibility)%>%
+   mutate(min.rt.timeline = min(rt.timeline)) %>% ungroup() %>%
+  group_by(pid, algorithm, responsibility) %>%
+  mutate(rt.timeline.instance = ifelse(rt.timeline == min.rt.timeline,1,0),
+          r.instance = cumsum(rt.timeline.instance)) 
+
+data.exp2 = data.exp2 %>% ungroup() %>% group_by (pid, algorithm, responsibility, r.instance)%>%
+   mutate(rt.timeline.clean = ifelse(rt.timeline<=0 | window.time.1<= rt.duration.after.switch, lane.deviation.2, NA))
+
+ ggplot()+
+  geom_path(data = filter(data.exp2, rt.timeline >= -5 & rt.timeline<=100), aes(rt.timeline, rt.timeline.clean, group = r.instance), color = "grey")+
+  geom_point(data = filter(data.exp2, rt.duration.on.timeline!=100), aes(rt.timeline, rt.duration.on.timeline, group = r.instance), color = "red", size = 0.7, alpha = 0.8)+
+  geom_point(data = filter(data.exp2, rt.on.timeline!=100), aes(rt.timeline, rt.on.timeline, group = r.instance), color = "black", shape =21, alpha = 0.5)+
+  labs(x= "Time", y = "Lane Deviation")+
+  xlim(-5, 50)+
+  #ylim(-1,1)+
+  facet_wrap(~pid)+
+  theme_minimal()
 ```
 
 ```{r}
 #LOAD DATA FROM EXPERIMENT 1 & RENAME
-load("/Users/morganprice/dissertation/Exps_Combined_Chapter5/Driver_Reaction_Dataframe_Exp1_7_27_19.RData")
-reaction.exp1 = select(reaction, pid, algorithm, responsibility, experiment, adj.time, auto.mode, instance, traffic.demand, eyes.on.road.m, driver.reaction.time, reaction.duration, speed, hazard, relevant.hazard)
+load("/Users/morganprice/dissertation/Exps_Combined_Chapter5/Driver_Reaction_Dataframe_Exp1_7_29_19.RData")
+reaction.exp1 = select(reaction, pid, algorithm, responsibility, experiment, adj.time, auto.mode, traffic.demand, f.traffic.demand, eyes.on.road.m, driver.reaction.time, reaction.duration, speed, hazard, relevant.hazard)
+
+reaction.exp1 = reaction.exp1 %>% ungroup() %>% group_by (pid, algorithm, responsibility)%>%
+   mutate(pid.adj = pid + 0.1)
 
 #LOAD DATA FROM EXPERIMENT 2 & RENAME
-load("/Users/morganprice/dissertation/Exps_Combined_Chapter5/Driver_Reaction_Dataframe_Exp2_7_13_19.RData")
+load("/Users/morganprice/dissertation/Exps_Combined_Chapter5/Driver_Reaction_Dataframe_Exp2_8_4_19.RData")
 
-reaction.exp2 = select(reaction.exp2, pid, algorithm, responsibility, experiment, adj.time, auto.mode, instance, traffic.demand, eyes.on.road.m, driver.reaction.time, reaction.duration, speed, hazard, relevant.hazard)
+reaction.exp2 = select(reaction.exp2, pid, algorithm, responsibility, experiment, adj.time, auto.mode, traffic.demand, f.traffic.demand, eyes.on.road.m, driver.reaction.time, reaction.duration, speed, hazard, relevant.hazard)
+
+reaction.exp2 = reaction.exp2 %>% ungroup() %>% group_by (pid, algorithm, responsibility)%>%
+   mutate(pid.adj = pid + 0.2)
 
 #Combine Exp1 & Exp 2 data frames
 reaction.df = rbind(reaction.exp1, reaction.exp2)
 
+reaction.df = reaction.df %>% ungroup() %>%
+  mutate(responsibility = ifelse(responsibility == "driver", "Driver", "Automation"))
+
+reaction.df = filter(reaction.df, driver.reaction.time!=-1)
+
+reaction.df = reaction.df %>% ungroup() %>% group_by(pid.adj, algorithm, responsibility) %>%
+  mutate(rt.timeline.instance = ifelse(driver.reaction.time>=0, 1, 0),
+          r.instance = cumsum(rt.timeline.instance)) 
+           
+#Violin Plot for Driver Reaction Time
+reaction.summary = reaction.df %>% ungroup() %>% group_by(algorithm, responsibility) %>%
+   summarise(reaction.time.m = mean(driver.reaction.time),
+          reaction.time.sd = sd(driver.reaction.time),
+          min.reaction.time = reaction.time.m - reaction.time.sd,
+          max.reaction.time = reaction.time.m + reaction.time.sd,
+          duration.m = mean(reaction.duration),
+          duration.sd = sd(reaction.duration),
+          min.duration = duration.m - duration.sd,
+          max.duration = duration.m + duration.sd)
+
+######VIOLIN PLOT FOR DRIVER REACTION TIME #########
+reaction.time.violin.plot = ggplot() + 
+  geom_violin(data = reaction.df, aes(x=algorithm, y=driver.reaction.time), colour = "grey", fill="gray", alpha = 0.5,
+              trim=FALSE)+
+  geom_sina(data = reaction.df, aes(x=algorithm, y=driver.reaction.time), color = "black", shape =21, alpha = 0.2)+
+  geom_pointrange(data=reaction.summary, mapping=aes(x=algorithm, y=reaction.time.m, ymin=min.reaction.time,
+                                                     ymax=max.reaction.time), size=0.5, color="black") + 
+  facet_wrap(~responsibility)+
+  labs(x= "Algorithm", y = "Reaction Time")+
+  theme_minimal()
+
+ggsave(plot = reaction.time.violin.plot, filename = "Reaction_Time_Violin_Plot.pdf",  width = 8, height = 4.25, dpi = 400)
+
+
+######VIOLIN PLOT FOR DURATION OF REACTION#########
+duration.violin.plot = ggplot() + 
+  geom_violin(data = reaction.df, aes(x=algorithm, y=reaction.duration), colour = "grey", fill="gray", alpha = 0.5,
+              trim=FALSE)+
+  geom_sina(data = reaction.df, aes(x=algorithm, y=reaction.duration), color = "black", shape =21, alpha = 0.2)+
+  geom_pointrange(data=reaction.summary, mapping=aes(x=algorithm, y=duration.m, ymin=min.duration,
+                                                     ymax=max.duration), size=0.5, color="black") + 
+  facet_wrap(~responsibility)+
+  labs(x= "Algorithm", y = "Duration of Reaction")+
+  theme_minimal()
+
+ggsave(plot = duration.violin.plot, filename = "Duration_of_Reation_Violin_Plot.pdf", width = 8, height = 4.25, dpi = 400)
+
 ```
 
 ```{r}
+################## STATISTICAL MODELS FOR DRIVER REACTION TIME AND REACTION DURATION ###################
 #Run statistical model of DV ~ algorithm + responsibility + traffic.demand + (1|pid) + (1|relevant.hazard)
-## Model of EOR
-# EOR~algorithm, responsibility, traffic demand, reaction time, duration, 1|pid, 1|relevant hazard 
-reaction.df$responsibility=as.factor(reaction.df$responsibility)
-
-#Linear mixed effects model 
 #Models do not include latent hazard because the model did not converge with lh included
-#Model 1 - Driver Reaciton Time 
-mod_1 = lmer(driver.reaction.time ~ algorithm * responsibility * traffic.demand + (1|pid), reaction.df) 
-summary(mod_1)
-anova(mod_1)
 
-#Model 1 - Duration of Driver Response 
-mod_2 = lmer(reaction.duration ~ algorithm * responsibility * traffic.demand + (1|pid), reaction.df) 
+#Model 1 - Driver Reaciton Time 
+mod_1 = lmer(driver.reaction.time ~ algorithm * responsibility * f.traffic.demand + (1|pid.adj), reaction.df) 
+#mod_1 = lmer(driver.reaction.time ~ algorithm * responsibility * r.instance + (1|pid.adj), reaction.df) 
+summary(mod_1)
+# anova(mod_1)
+coef(summary(mod_1))
+
+
+#Model 2 - Duration of Driver Response 
+mod_2 = lmer(reaction.duration ~ algorithm * responsibility * f.traffic.demand + (1|pid.adj), reaction.df) 
+#mod_2 = lmer(reaction.duration ~ algorithm * responsibility * r.instance+ (1|pid.adj), reaction.df) 
 summary(mod_2)
-anova(mod_2)
+# anova(mod_2)
+
+plot(ranef(mod_1))
+plot(ranef(mod_2))
+
+plot(mod_1)
+plot(mod_2)
+```
+
+```{r}
+################## STATISTICAL MODELS FOR AUTOMATION USE AND EOR IN LATENT HAZARD ZONES ###################
+#Run statistical model of DV ~ algorithm + responsibility + traffic.demand + (1|pid) + (1|relevant.hazard)
+
+
+
+
 
 ```
 
