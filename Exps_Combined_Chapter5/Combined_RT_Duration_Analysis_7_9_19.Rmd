@@ -80,50 +80,70 @@ ggplot(log.reaction.df) +
 #Model 1 - Driver Reaciton Time 
 #LOG TRANSFORMED MODEL
 log_mod_1 = lmer(log.reaction.time ~ algorithm + responsibility + traffic.demand.lhzone + hazard.y.n + algorithm:responsibility +
-                  algorithm:hazard.y.n + responsibility:hazard.y.n + algorithm:responsibility:hazard.y.n + (1|pid.adj),
-                 log.reaction.df) 
+                   (1|pid.adj), log.reaction.df)
+
+
+# log_mod_1 = lmer(log.reaction.time ~ algorithm + responsibility + traffic.demand.lhzone + hazard.y.n + algorithm:responsibility +
+#                   algorithm:hazard.y.n + responsibility:hazard.y.n + algorithm:responsibility:hazard.y.n + (1|pid.adj),
+#                  log.reaction.df) #Error in model algorithm:hazard.y.n
 
 
 summary(log_mod_1)
 lsmeans.rt.mod = lsmeans::lsmeans(log_mod_1, c("algorithm","responsibility")) %>% tidy()
-lsmeans.rt.lh.mod = lsmeans::lsmeans(log_mod_1, c("algorithm","responsibility", "hazard.y.n")) %>% tidy()
+#lsmeans.rt.lh.mod = lsmeans::lsmeans(log_mod_1, c("algorithm","responsibility", "hazard.y.n")) %>% tidy()
 
 
 #Model 2 - Duration of Driver Response 
 log_mod_2 = lmer(log.reaction.duration ~ algorithm + responsibility + traffic.demand.lhzone + hazard.y.n + algorithm:responsibility +
-                  algorithm:hazard.y.n + responsibility:hazard.y.n + algorithm:responsibility:hazard.y.n + (1|pid.adj),
-                 log.reaction.df) 
+                   (1|pid.adj), log.reaction.df) 
+
+# log_mod_2 = lmer(log.reaction.duration ~ algorithm + responsibility + traffic.demand.lhzone + hazard.y.n + algorithm:responsibility +
+#                   algorithm:hazard.y.n + responsibility:hazard.y.n + algorithm:responsibility:hazard.y.n + (1|pid.adj),
+#                  log.reaction.df) 
 
 summary(log_mod_2)
 lsmeans.duration.mod = lsmeans::lsmeans(log_mod_2, c("algorithm","responsibility")) %>% tidy()
-lsmeans.duration.lh.mod = lsmeans::lsmeans(log_mod_2, c("algorithm","responsibility", "hazard.y.n")) %>% tidy()
+#lsmeans.duration.lh.mod = lsmeans::lsmeans(log_mod_2, c("algorithm","responsibility", "hazard.y.n")) %>% tidy()
 
 ```
 
 ```{r}
 ######VIOLIN PLOT FOR DRIVER REACTION TIME #########
-reaction.time.violin.plot = ggplot() + 
-  geom_violin(data = reaction.df, aes(x=algorithm, y=driver.reaction.time), colour = "grey", fill="gray", alpha = 0.5,
+grand.mean.rt.analysis = log.reaction.df %>% ungroup() %>% 
+  summarize(log.reaction.time.m = mean(log.reaction.time),
+            log.reaction.duration.m = mean(log.reaction.duration))
+
+#reaction.time.violin.plot = 
+  
+  ggplot() +
+  geom_sina(data = log.reaction.df, aes(x=algorithm, y=log.reaction.time), colour = "grey", alpha = 0.5)+
+  geom_violin(data = log.reaction.df, aes(x=algorithm, y=log.reaction.time), colour = "grey", fill="gray", alpha = 0.5,
               trim=FALSE)+
-  geom_sina(data = reaction.df, aes(x=algorithm, y=driver.reaction.time), color = "black", shape =21, alpha = 0.2)+
-  geom_pointrange(data = reaction.summary, aes(x=algorithm, y=reaction.time.m, ymin=min.reaction.time,
-                                                     ymax=max.reaction.time), size=0.5, color="black") + 
-  #geom_point(data = reaction.summary, aes(x=algorithm, y=reaction.time.med), size=1.5, color="red") + 
+  geom_point(data = lsmeans.rt.mod, aes(x=algorithm, y=estimate), color = "black", shape =21, alpha = 0.2 )+
+  geom_pointrange(data=lsmeans.rt.mod, mapping=aes(x=algorithm, y=estimate, ymin=conf.low,
+                                                      ymax=conf.high), size=0.5, color="black") +
+  geom_hline(data = grand.mean.rt.analysis, aes(yintercept = log.reaction.time.m), alpha = 0.75)+
   facet_wrap(~responsibility)+
+  coord_trans(y = "log1p")+
   labs(x= "Algorithm", y = "Reaction Time")+
   theme_minimal()
+
 
 ggsave(plot = reaction.time.violin.plot, filename = "Reaction_Time_Violin_Plot.pdf",  width = 8, height = 4.25, dpi = 400)
 
 
 ######VIOLIN PLOT FOR DURATION OF REACTION#########
-duration.violin.plot = ggplot() + 
-  geom_violin(data = reaction.df, aes(x=algorithm, y=reaction.duration), colour = "grey", fill="gray", alpha = 0.5,
+#duration.violin.plot =   
+  ggplot() +
+  geom_sina(data = log.reaction.df, aes(x=algorithm, y=log.reaction.duration), colour = "grey", alpha = 0.5)+
+  geom_violin(data = log.reaction.df, aes(x=algorithm, y=log.reaction.duration), colour = "grey", fill="gray", alpha = 0.5,
               trim=FALSE)+
-  geom_sina(data = reaction.df, aes(x=algorithm, y=reaction.duration), color = "black", shape =21, alpha = 0.2)+
-  geom_pointrange(data=reaction.summary, mapping=aes(x=algorithm, y=duration.m, ymin=min.duration,
-                                                     ymax=max.duration), size=0.5, color="black") + 
+  geom_point(data = lsmeans.duration.mod, aes(x=algorithm, y=estimate), color = "black", shape =21, alpha = 0.2 )+
+  geom_pointrange(data=lsmeans.duration.mod, mapping=aes(x=algorithm, y=estimate, ymin=conf.low,
+                                                      ymax=conf.high), size=0.5, color="black") +
+  geom_hline(data = grand.mean.rt.analysis, aes(yintercept = log.reaction.duration.m), alpha = 0.75)+
   facet_wrap(~responsibility)+
+  coord_trans(y = "log1p")+
   labs(x= "Algorithm", y = "Duration of Reaction")+
   theme_minimal()
 
