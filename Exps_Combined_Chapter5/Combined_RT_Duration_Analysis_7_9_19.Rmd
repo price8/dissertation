@@ -25,8 +25,114 @@ library(ggforce)
 
 rm(list = ls(all = TRUE))
 
+#LOAD DATA FROM EXPERIMENT 1 & RENAME
+load("/Users/morganprice/dissertation/Exps_Combined_Chapter5/Driver_Reaction_Dataframe_Exp1_8_8_19.RData")
+reaction.exp1 = select(reaction, pid, algorithm, responsibility, experiment, adj.time, auto.mode, traffic.demand, f.traffic.demand, traffic.demand.lhzone, eyes.on.road.m, driver.reaction.time, reaction.duration, speed, hazard, relevant.hazard)
+
+reaction.exp1 = reaction.exp1 %>% ungroup() %>% group_by (pid, algorithm, responsibility)%>%
+   mutate(pid.adj = pid + 0.1)
+
+#LOAD DATA FROM EXPERIMENT 2 & RENAME
+load("/Users/morganprice/dissertation/Exps_Combined_Chapter5/Driver_Reaction_Dataframe_Exp2_8_8_19.RData")
+
+reaction.exp2 = select(reaction.exp2, pid, algorithm, responsibility, experiment, adj.time, auto.mode, traffic.demand, f.traffic.demand, traffic.demand.lhzone, eyes.on.road.m, driver.reaction.time, reaction.duration, speed, hazard, relevant.hazard)
+
+reaction.exp2 = reaction.exp2 %>% ungroup() %>% group_by (pid, algorithm, responsibility)%>%
+   mutate(pid.adj = pid + 0.2)
+
+reaction.exp2 = filter(reaction.exp2, driver.reaction.time!=-1)
+reaction.exp2 = filter(reaction.exp2, driver.reaction.time<=35)
+
+#Combine Exp1 & Exp 2 data frames
+reaction.df = rbind(reaction.exp1, reaction.exp2)
+
+reaction.df = reaction.df %>% ungroup() %>%
+  mutate(responsibility = ifelse(responsibility == "driver", "Driver", "Automation"))
+
+reaction.df = reaction.df %>% ungroup() %>% group_by(pid.adj, algorithm, responsibility) %>%
+  mutate(rt.timeline.instance = ifelse(driver.reaction.time>=0, 1, 0),
+         r.instance = cumsum(rt.timeline.instance),
+         hazard.y.n = ifelse(relevant.hazard!=0, 1, 0)) 
+
+###########Histogram & Normalizing the data##############
+log.reaction.df = reaction.df %>% ungroup() %>% group_by(pid.adj, algorithm, responsibility) %>%
+  mutate(log.reaction.time = log1p(driver.reaction.time),
+         log.reaction.duration = log1p(reaction.duration))
+
+qplot(reaction.df$driver.reaction.time, geom="histogram") 
+qplot(reaction.df$reaction.duration, geom="histogram") 
+
+ggplot(log.reaction.df) + 
+  geom_histogram(aes(x=log.reaction.time)) + 
+  ggtitle("Log-transformed RT")
+
+ggplot(log.reaction.df) + 
+  geom_histogram(aes(x=log.reaction.duration)) + 
+  ggtitle("Log-transformed Duration")
+
+```
+
+```{r}
+################## STATISTICAL MODELS FOR DRIVER REACTION TIME AND REACTION DURATION ###################
+#Run statistical model of DV ~ algorithm + responsibility + traffic.demand + (1|pid) + (1|relevant.hazard)
+#Models do not include latent hazard because the model did not converge with lh included
+
+#Model 1 - Driver Reaciton Time 
+#LOG TRANSFORMED MODEL
+log_mod_1 = lmer(log.reaction.time ~ algorithm + responsibility + traffic.demand.lhzone + hazard.y.n + algorithm:responsibility +
+                  algorithm:hazard.y.n + responsibility:hazard.y.n + algorithm:responsibility:hazard.y.n + (1|pid.adj),
+                 log.reaction.df) 
+
+
+summary(log_mod_1)
+lsmeans.rt.mod = lsmeans::lsmeans(log_mod_1, c("algorithm","responsibility")) %>% tidy()
+lsmeans.rt.lh.mod = lsmeans::lsmeans(log_mod_1, c("algorithm","responsibility", "hazard.y.n")) %>% tidy()
+
+
+#Model 2 - Duration of Driver Response 
+log_mod_2 = lmer(log.reaction.duration ~ algorithm + responsibility + traffic.demand.lhzone + hazard.y.n + algorithm:responsibility +
+                  algorithm:hazard.y.n + responsibility:hazard.y.n + algorithm:responsibility:hazard.y.n + (1|pid.adj),
+                 log.reaction.df) 
+
+summary(log_mod_2)
+lsmeans.duration.mod = lsmeans::lsmeans(log_mod_2, c("algorithm","responsibility")) %>% tidy()
+lsmeans.duration.lh.mod = lsmeans::lsmeans(log_mod_2, c("algorithm","responsibility", "hazard.y.n")) %>% tidy()
+
+```
+
+```{r}
+######VIOLIN PLOT FOR DRIVER REACTION TIME #########
+reaction.time.violin.plot = ggplot() + 
+  geom_violin(data = reaction.df, aes(x=algorithm, y=driver.reaction.time), colour = "grey", fill="gray", alpha = 0.5,
+              trim=FALSE)+
+  geom_sina(data = reaction.df, aes(x=algorithm, y=driver.reaction.time), color = "black", shape =21, alpha = 0.2)+
+  geom_pointrange(data = reaction.summary, aes(x=algorithm, y=reaction.time.m, ymin=min.reaction.time,
+                                                     ymax=max.reaction.time), size=0.5, color="black") + 
+  #geom_point(data = reaction.summary, aes(x=algorithm, y=reaction.time.med), size=1.5, color="red") + 
+  facet_wrap(~responsibility)+
+  labs(x= "Algorithm", y = "Reaction Time")+
+  theme_minimal()
+
+ggsave(plot = reaction.time.violin.plot, filename = "Reaction_Time_Violin_Plot.pdf",  width = 8, height = 4.25, dpi = 400)
+
+
+######VIOLIN PLOT FOR DURATION OF REACTION#########
+duration.violin.plot = ggplot() + 
+  geom_violin(data = reaction.df, aes(x=algorithm, y=reaction.duration), colour = "grey", fill="gray", alpha = 0.5,
+              trim=FALSE)+
+  geom_sina(data = reaction.df, aes(x=algorithm, y=reaction.duration), color = "black", shape =21, alpha = 0.2)+
+  geom_pointrange(data=reaction.summary, mapping=aes(x=algorithm, y=duration.m, ymin=min.duration,
+                                                     ymax=max.duration), size=0.5, color="black") + 
+  facet_wrap(~responsibility)+
+  labs(x= "Algorithm", y = "Duration of Reaction")+
+  theme_minimal()
+
+ggsave(plot = duration.violin.plot, filename = "Duration_of_Reation_Violin_Plot.pdf", width = 8, height = 4.25, dpi = 400)
+```
+
+```{r}
 ####LOAD DATA
-load("/Users/morganprice/dissertation/Exps_Combined_Chapter5/Exp1_CLEAN_RT_Dataframe_7_29_19.RData")
+load("/Users/morganprice/dissertation/Exps_Combined_Chapter5/Exp1_CLEAN_RT_Dataframe_8_8_19.RData")
 
 ######RT - 5 SECONDS#########
 data.exp1 = data.exp1 %>% ungroup() %>% group_by(pid, algorithm, responsibility) %>%
@@ -207,33 +313,24 @@ eor.with.threshold.exp1 = ggplot()+
    theme_minimal()
 
 ggsave(plot = eor.with.threshold.exp1, filename = "EXP1_EOR_timeline_with_EOR_threshold.pdf", width = 8, height = 4.25, dpi = 400)
-######TESTING PLOT######
-# myColors <- c("#E50D0D", "#291733")
-# data.exp1 = data.exp1 %>% ungroup() %>% group_by(pid, algorithm, responsibility) %>%
-#   mutate(automation.on.off = ifelse(auto.mode == 1, "automtion on", "automation off"))
-# 
-# 
-# ggplot()+
-#   geom_line(data = data.exp1, aes(adj.time, lane.deviation.2, color = automation.on.off), size = 0.5)+
-#   geom_vline(data = filter(data.exp1, alg.switch != 0), aes(xintercept = alg.switch), color = "black", size = 0.2, alpha = 0.5)+
-#   scale_color_manual(values=myColors)+
-#   facet_wrap(~pid)+
-#   labs(x= "Time (s)", y = "Lane Deviation")+
-#   theme_minimal()
-# 
-# ggplot()+
-#   geom_path(data = filter(data.exp2, pid !=8), aes(adj.time, lane.deviation.2, color = as.factor(auto.mode)), size = 0.5)+
-#   geom_vline(data = filter(data.exp2, algorithm.switch.2 == "LC to LK" & pid !=8), aes(xintercept = alg.switch), color = "black", size = 0.2, alpha = 0.5)+
-#   scale_color_manual(values=myColors)+
-#   facet_wrap(~pid)+
-#    labs(x= "Time (s)", y = "Lane Deviation")+
-#    theme_minimal()
 
+eor.m.data.exp1 = data.exp1 %>% ungroup() %>% group_by(pid) %>%
+  summarize(mean.eor.pid = mean(eyes.on.road.m))
+
+eor.with.threshold.hline.exp1 = ggplot()+
+  geom_path(data = data.exp1, aes(adj.time, eyes.on.road.m), color = "grey", size = 0.5)+
+  geom_point(data = filter(data.exp1, e.off.below.threshold.m != 1), aes(adj.time, e.off.below.threshold.m), color = "red",  size = 0.5, alpha = 0.5)+
+  geom_hline(data = filter(eor.m.data.exp1, pid !=8), aes(yintercept = mean.eor.pid), color = "black",  size = 0.5)+
+  facet_wrap(~pid)+
+    labs(x= "Time (s)", y = "Eyes on Road")+
+   theme_minimal()
+
+ggsave(plot = eor.with.threshold.hline.exp1, filename = "EXP1_EOR_timeline_with_EOR_threshold_HLINE.pdf", width = 8, height = 4.25, dpi = 400)
 
 ```
 
 ```{r}
-load("/Users/morganprice/dissertation/Exps_Combined_Chapter5/Exp2_CLEAN_RT_Dataframe_8_04_19.RData")
+load("/Users/morganprice/dissertation/Exps_Combined_Chapter5/Exp2_CLEAN_RT_Dataframe_8_08_19.RData")
 
 data.exp2 = data.exp2 %>% ungroup() %>% group_by(pid, algorithm, responsibility) %>%
   mutate(alg.switch = ifelse(algorithm.switch.2 == "LC to LK", adj.time, 0))
@@ -258,6 +355,18 @@ ggsave(plot = eor.timeline.with.alg.switch.exp2, filename = "EXP2_EOR_timeline_w
    theme_minimal()
 
 ggsave(plot = eor.with.eor.threshold.exp2, filename = "EXP2_EOR_timeline_with_EOR_threshold.pdf",width = 9, height = 5, dpi = 400)
+
+eor.m.data.exp2 = data.exp2 %>% ungroup() %>% group_by(pid) %>%
+  summarize(mean.eor.pid = mean(eyes.on.road.m))
+
+eor.exp2 = ggplot()+
+  geom_path(data = filter(data.exp2, pid !=8), aes(adj.time, eyes.on.road.m), color = "grey", size = 0.5)+
+  geom_hline(data = filter(eor.m.data.exp2, pid !=8), aes(yintercept = mean.eor.pid), color = "black",  size = 0.5)+
+  facet_wrap(~pid)+
+  labs(x= "Time (s)", y = "Eyes on Road")+
+   theme_minimal()
+
+ggsave(plot = eor.exp2, filename = "EXP2_EOR_timeline.pdf",width = 9, height = 5, dpi = 400)
 
 
 ```
@@ -338,109 +447,89 @@ data.exp2 = data.exp2 %>% ungroup() %>% group_by (pid, algorithm, responsibility
   theme_minimal()
 ```
 
+
 ```{r}
-#LOAD DATA FROM EXPERIMENT 1 & RENAME
-load("/Users/morganprice/dissertation/Exps_Combined_Chapter5/Driver_Reaction_Dataframe_Exp1_7_29_19.RData")
-reaction.exp1 = select(reaction, pid, algorithm, responsibility, experiment, adj.time, auto.mode, traffic.demand, f.traffic.demand, eyes.on.road.m, driver.reaction.time, reaction.duration, speed, hazard, relevant.hazard)
+################## EOR SUMMARY ###################
+sum.data.exp1 = data.exp1 %>% ungroup() %>% group_by(algorithm, responsibility) %>%
+  summarize(m.eor = mean(eyes.on.road.m))
 
-reaction.exp1 = reaction.exp1 %>% ungroup() %>% group_by (pid, algorithm, responsibility)%>%
-   mutate(pid.adj = pid + 0.1)
+sum.data.exp2 = data.exp2 %>% ungroup() %>% group_by(algorithm, responsibility) %>%
+  summarize(m.eor = mean(eyes.on.road.m))
 
-#LOAD DATA FROM EXPERIMENT 2 & RENAME
-load("/Users/morganprice/dissertation/Exps_Combined_Chapter5/Driver_Reaction_Dataframe_Exp2_8_4_19.RData")
+sum.alg.data.exp1 = data.exp1 %>% ungroup() %>% group_by(algorithm) %>%
+  summarize(m.eor = mean(eyes.on.road.m))
 
-reaction.exp2 = select(reaction.exp2, pid, algorithm, responsibility, experiment, adj.time, auto.mode, traffic.demand, f.traffic.demand, eyes.on.road.m, driver.reaction.time, reaction.duration, speed, hazard, relevant.hazard)
+sum.alg.data.exp2 = data.exp2 %>% ungroup() %>% group_by(algorithm) %>%
+  summarize(m.eor = mean(eyes.on.road.m))
 
-reaction.exp2 = reaction.exp2 %>% ungroup() %>% group_by (pid, algorithm, responsibility)%>%
-   mutate(pid.adj = pid + 0.2)
+rt.freq.exp1 = table(reaction.exp1$driver.reaction.time)
+rt.freq.exp1
 
-#Combine Exp1 & Exp 2 data frames
-reaction.df = rbind(reaction.exp1, reaction.exp2)
+rt.freq.exp2 = table(reaction.exp2$driver.reaction.time)
+rt.freq.exp2
 
-reaction.df = reaction.df %>% ungroup() %>%
-  mutate(responsibility = ifelse(responsibility == "driver", "Driver", "Automation"))
+duration.freq.exp1 = table(reaction.exp1$reaction.duration)
+duration.freq.exp1
 
-reaction.df = filter(reaction.df, driver.reaction.time!=-1)
-
-reaction.df = reaction.df %>% ungroup() %>% group_by(pid.adj, algorithm, responsibility) %>%
-  mutate(rt.timeline.instance = ifelse(driver.reaction.time>=0, 1, 0),
-          r.instance = cumsum(rt.timeline.instance)) 
-           
-#Violin Plot for Driver Reaction Time
-reaction.summary = reaction.df %>% ungroup() %>% group_by(algorithm, responsibility) %>%
-   summarise(reaction.time.m = mean(driver.reaction.time),
-          reaction.time.sd = sd(driver.reaction.time),
-          min.reaction.time = reaction.time.m - reaction.time.sd,
-          max.reaction.time = reaction.time.m + reaction.time.sd,
-          duration.m = mean(reaction.duration),
-          duration.sd = sd(reaction.duration),
-          min.duration = duration.m - duration.sd,
-          max.duration = duration.m + duration.sd)
-
-######VIOLIN PLOT FOR DRIVER REACTION TIME #########
-reaction.time.violin.plot = ggplot() + 
-  geom_violin(data = reaction.df, aes(x=algorithm, y=driver.reaction.time), colour = "grey", fill="gray", alpha = 0.5,
-              trim=FALSE)+
-  geom_sina(data = reaction.df, aes(x=algorithm, y=driver.reaction.time), color = "black", shape =21, alpha = 0.2)+
-  geom_pointrange(data=reaction.summary, mapping=aes(x=algorithm, y=reaction.time.m, ymin=min.reaction.time,
-                                                     ymax=max.reaction.time), size=0.5, color="black") + 
-  facet_wrap(~responsibility)+
-  labs(x= "Algorithm", y = "Reaction Time")+
-  theme_minimal()
-
-ggsave(plot = reaction.time.violin.plot, filename = "Reaction_Time_Violin_Plot.pdf",  width = 8, height = 4.25, dpi = 400)
-
-
-######VIOLIN PLOT FOR DURATION OF REACTION#########
-duration.violin.plot = ggplot() + 
-  geom_violin(data = reaction.df, aes(x=algorithm, y=reaction.duration), colour = "grey", fill="gray", alpha = 0.5,
-              trim=FALSE)+
-  geom_sina(data = reaction.df, aes(x=algorithm, y=reaction.duration), color = "black", shape =21, alpha = 0.2)+
-  geom_pointrange(data=reaction.summary, mapping=aes(x=algorithm, y=duration.m, ymin=min.duration,
-                                                     ymax=max.duration), size=0.5, color="black") + 
-  facet_wrap(~responsibility)+
-  labs(x= "Algorithm", y = "Duration of Reaction")+
-  theme_minimal()
-
-ggsave(plot = duration.violin.plot, filename = "Duration_of_Reation_Violin_Plot.pdf", width = 8, height = 4.25, dpi = 400)
+duration.freq.exp2 = table(reaction.exp2$reaction.duration)
+duration.freq.exp2
 
 ```
 
 ```{r}
-################## STATISTICAL MODELS FOR DRIVER REACTION TIME AND REACTION DURATION ###################
-#Run statistical model of DV ~ algorithm + responsibility + traffic.demand + (1|pid) + (1|relevant.hazard)
-#Models do not include latent hazard because the model did not converge with lh included
-
-#Model 1 - Driver Reaciton Time 
-mod_1 = lmer(driver.reaction.time ~ algorithm * responsibility * f.traffic.demand + (1|pid.adj), reaction.df) 
-#mod_1 = lmer(driver.reaction.time ~ algorithm * responsibility * r.instance + (1|pid.adj), reaction.df) 
-summary(mod_1)
-# anova(mod_1)
-coef(summary(mod_1))
-
-
-#Model 2 - Duration of Driver Response 
-mod_2 = lmer(reaction.duration ~ algorithm * responsibility * f.traffic.demand + (1|pid.adj), reaction.df) 
+############################################ OLD CODE NOT USED ##################################################################
+#OLD MODELS 
+#mod_2 = lmer(reaction.duration ~ algorithm * responsibility * f.traffic.demand + (1|pid.adj), reaction.df) 
 #mod_2 = lmer(reaction.duration ~ algorithm * responsibility * r.instance+ (1|pid.adj), reaction.df) 
-summary(mod_2)
 # anova(mod_2)
-
-plot(ranef(mod_1))
-plot(ranef(mod_2))
-
-plot(mod_1)
-plot(mod_2)
+#OLD MODELS
+#mod_1 = lmer(driver.reaction.time ~ algorithm * responsibility * f.traffic.demand + (1|pid.adj), reaction.df) 
+#mod_1 = lmer(driver.reaction.time ~ algorithm * responsibility * r.instance + (1|pid.adj), reaction.df) 
+# anova(mod_1)
+# coef(summary(mod_1))
+# mod_1 = lmer(driver.reaction.time ~ algorithm + responsibility + traffic.demand.lhzone + hazard.y.n + algorithm:responsibility +
+#                   algorithm:hazard.y.n + responsibility:hazard.y.n + algorithm:responsibility:hazard.y.n + (1|pid.adj), reaction.df) 
+# summary(mod_1)
+# mod_2 = lmer(reaction.duration ~ algorithm + responsibility + traffic.demand.lhzone + hazard.y.n + algorithm:responsibility +
+#                   algorithm:hazard.y.n + responsibility:hazard.y.n + algorithm:responsibility:hazard.y.n + (1|pid.adj), reaction.df) 
+# summary(mod_2)
+#############PLOTS FOR PAPER ############################
+#Violin Plot for Driver Reaction Time
+# reaction.summary = reaction.df %>% ungroup() %>% group_by(algorithm, responsibility) %>%
+#    summarise(reaction.time.m = mean(driver.reaction.time),
+#              reaction.time.med = median(driver.reaction.time), #calculate 85% here and plot on violin plot
+#              reaction.time.sd = sd(driver.reaction.time),
+#              min.reaction.time = reaction.time.m - reaction.time.sd,
+#              max.reaction.time = reaction.time.m + reaction.time.sd,
+#              duration.m = mean(reaction.duration),
+#              duration.med = median(reaction.duration),
+#              duration.sd = sd(reaction.duration),
+#              min.duration = duration.m - duration.sd,
+#              max.duration = duration.m + duration.sd)
+######TESTING PLOT######
+# myColors <- c("#E50D0D", "#291733")
+# data.exp1 = data.exp1 %>% ungroup() %>% group_by(pid, algorithm, responsibility) %>%
+#   mutate(automation.on.off = ifelse(auto.mode == 1, "automtion on", "automation off"))
+# 
+# 
+# ggplot()+
+#   geom_line(data = data.exp1, aes(adj.time, lane.deviation.2, color = automation.on.off), size = 0.5)+
+#   geom_vline(data = filter(data.exp1, alg.switch != 0), aes(xintercept = alg.switch), color = "black", size = 0.2, alpha = 0.5)+
+#   scale_color_manual(values=myColors)+
+#   facet_wrap(~pid)+
+#   labs(x= "Time (s)", y = "Lane Deviation")+
+#   theme_minimal()
+# 
+# ggplot()+
+#   geom_path(data = filter(data.exp2, pid !=8), aes(adj.time, lane.deviation.2, color = as.factor(auto.mode)), size = 0.5)+
+#   geom_vline(data = filter(data.exp2, algorithm.switch.2 == "LC to LK" & pid !=8), aes(xintercept = alg.switch), color = "black", size = 0.2, alpha = 0.5)+
+#   scale_color_manual(values=myColors)+
+#   facet_wrap(~pid)+
+#    labs(x= "Time (s)", y = "Lane Deviation")+
+#    theme_minimal()
 ```
 
-```{r}
-################## STATISTICAL MODELS FOR AUTOMATION USE AND EOR IN LATENT HAZARD ZONES ###################
-#Run statistical model of DV ~ algorithm + responsibility + traffic.demand + (1|pid) + (1|relevant.hazard)
 
-
-
-
-
-```
 
 Add a new chunk by clicking the *Insert Chunk* button on the toolbar or by pressing *Cmd+Option+I*.
 
