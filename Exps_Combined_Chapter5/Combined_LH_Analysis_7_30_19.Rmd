@@ -31,14 +31,9 @@ data.exp1 = data.exp1 %>% ungroup() %>% group_by(pid, algorithm, responsibility)
 data.exp1$eyes.on.after.alg[is.na(data.exp1$eyes.on.after.alg)] <- 0
 
 data.exp1 = data.exp1 %>% ungroup() %>% group_by(pid, algorithm, responsibility) %>%
-  mutate(final.deadband.cat = ifelse(auto.mode == 0, "automation off",
-                                  ifelse(auto.mode == 1 & window.time.1 == eor.alg.trigger.time.down & 
-                                                  window.time.1 < eyes.on.after.alg, "lane keeping",
-                                                ifelse(auto.mode == 1 & window.time.1 > eor.alg.trigger.time.down &
-                                                       window.time.1 <= eyes.on.after.alg, "lane keeping", 
-                                                        "lane centering"))))
+  mutate(final.deadband.cat = lc.lk)
 
-latent.hazard.exp1 = select(data.exp1, pid, algorithm, responsibility, adj.time, auto.mode, traffic.demand, f.traffic.demand,traffic.demand.lhzone, lane.deviation.2, eyes.on.road.m, speed, hazard, relevant.hazard, lh.baseline, eor.alg.trigger.time, final.deadband.cat)
+latent.hazard.exp1 = select(data.exp1, pid, algorithm, responsibility, adj.time, window.time.1, auto.mode, traffic.demand, f.traffic.demand,traffic.demand.lhzone, lane.deviation.2, eyes.on.road.m, speed, hazard, relevant.hazard, lh.baseline, eor.alg.trigger.time, final.deadband.cat)
 
 ggplot(latent.hazard.exp1)+
   geom_point(aes(adj.time, lane.deviation.2, color = final.deadband.cat), size = 0.5)+
@@ -59,7 +54,7 @@ latent.hazard.exp1 = latent.hazard.exp1 %>% ungroup() %>% group_by (pid, algorit
 #LOAD DATA FROM EXPERIMENT 2 & RENAME
 load("/Users/morganprice/dissertation/Exps_Combined_Chapter5/Exp2_CLEAN_RT_Dataframe_8_08_19.RData")
 
-latent.hazard.exp2 = select(data.exp2, pid, algorithm, responsibility, adj.time, auto.mode, traffic.demand,  f.traffic.demand, traffic.demand.lhzone, lane.deviation.2, eyes.on.road.m, speed, hazard, relevant.hazard, lh.baseline, algorithm.switch.2, final.deadband.cat)
+latent.hazard.exp2 = select(data.exp2, pid, algorithm, responsibility, adj.time, window.time.1, auto.mode, traffic.demand,  f.traffic.demand, traffic.demand.lhzone, lane.deviation.2, eyes.on.road.m, speed, hazard, relevant.hazard, lh.baseline, algorithm.switch.2, final.deadband.cat, lc.lk)
 
 ggplot(latent.hazard.exp2)+
   geom_point(aes(adj.time, lane.deviation.2, color = final.deadband.cat), size = 0.5)+
@@ -115,19 +110,12 @@ lh_mod_2 = lmer(auto.use.m ~ algorithm + responsibility + traffic.demand.lhzone 
 summary(lh_mod_2)
 lsmeans.mod2= lsmeans::lsmeans(lh_mod_2, c("algorithm","responsibility", "hazard.y.n")) %>% tidy()
 
-#Model 2 - Frequency of eye switches
+#Model 3 - Frequency of eye switches
 lh_mod_3 = lmer(eye.on.switch.m ~
                   algorithm + responsibility + traffic.demand.lhzone + hazard.y.n + algorithm:responsibility +
                   algorithm:hazard.y.n + responsibility:hazard.y.n + algorithm:responsibility:hazard.y.n + (1|pid.adj), lh.analysis) 
 summary(lh_mod_3)
 lsmeans.mod3= lsmeans::lsmeans(lh_mod_3, c("algorithm","responsibility", "hazard.y.n")) %>% tidy()
-
-lsmeans.alg.mod3= lsmeans::lsmeans(lh_mod_3, c("algorithm","responsibility")) %>% tidy()
-
-
-########OLD CODE FOR THIS CHUNK##########
-# temp = lsmeansLT(lh_mod_1)
-# confint(lh_mod_1,method="Wald") #likelihood profile CIs
 
 ```
 
@@ -139,23 +127,22 @@ lh.plots = latent.hazard.df %>% ungroup() %>% group_by(pid.adj, algorithm, respo
             auto.use.m = mean(auto.mode),
             eye.on.switch.m = mean(eye.on.switch))
 
-alg.plots = latent.hazard.df %>% ungroup() %>% group_by(pid.adj, algorithm, responsibility) %>%
-  summarize(eye.on.switch.m = mean(eye.on.switch))
-
-lh.plots.grand.m = latent.hazard.df %>% ungroup() %>% group_by(algorithm, responsibility, hazard.y.n) %>%
-  summarize(eor.grand.m = mean(eyes.on.road.m),
-             auto.use.grand.m = mean(auto.mode))
+grand.mean.lh.analysis = latent.hazard.df %>% ungroup() %>% 
+  summarize(eor.m = mean(eyes.on.road.m),
+            auto.use.m = mean(auto.mode),
+            eye.on.switch.m = mean(eye.on.switch))
 
 lh.plots$hazard.y.n = as.factor(lh.plots$hazard.y.n)
 
 ##### EYES ON ROAD VIOLIN PLOT + POINT RANGE ~ MOD 1 #####
 eor.latet.hazard.zone = ggplot() +
-  geom_point(data = lh.plots, aes(x=hazard.y.n, y=eor.m), colour = "grey", alpha = 0.5)+
+  geom_sina(data = lh.plots, aes(x=hazard.y.n, y=eor.m), colour = "grey", alpha = 0.5)+
   geom_violin(data = lh.plots, aes(x=hazard.y.n, y=eor.m), colour = "grey", fill="gray", alpha = 0.5,
               trim=FALSE)+
   geom_point(data = lsmeans.mod1, aes(x=hazard.y.n, y=estimate), color = "black", shape =21, alpha = 0.2 )+
   geom_pointrange(data=lsmeans.mod1, mapping=aes(x=hazard.y.n, y=estimate, ymin=conf.low,
                                                       ymax=conf.high), size=0.5, color="black") +
+  geom_hline(data = grand.mean.lh.analysis, aes(yintercept = eor.m), alpha = 0.75)+
   facet_grid(responsibility~algorithm)+
   scale_x_discrete(breaks=c(0.00,1.00),
         labels=c("No\n latent hazards", "Latent\n hazard"))+
@@ -164,30 +151,33 @@ eor.latet.hazard.zone = ggplot() +
 
 ggsave(plot = eor.latet.hazard.zone, filename = "EOR_Latent_Hazard_Zones.pdf", width = 8, height = 4.25, dpi = 400)
 
-##### AUTOMATION USE VIOLIN PLOT + POINT RANGE ~ MOD 1 #####
+
+##### AUTOMATION USE VIOLIN PLOT + POINT RANGE ~ MOD 2 #####
 auto.use.latet.hazard.zone = ggplot() +
-  geom_point(data = lh.plots, aes(x=hazard.y.n, y=auto.use.m), colour = "grey", alpha = 0.5)+
+  geom_sina(data = lh.plots, aes(x=hazard.y.n, y=auto.use.m), colour = "grey", alpha = 0.5)+
   geom_violin(data = lh.plots, aes(x=hazard.y.n, y=auto.use.m), colour = "grey", fill="gray", alpha = 0.5,
               trim=FALSE)+
   geom_point(data = lsmeans.mod2, aes(x=hazard.y.n, y=estimate), color = "black", shape =21, alpha = 0.2 )+
   geom_pointrange(data=lsmeans.mod2, mapping=aes(x=hazard.y.n, y=estimate, ymin=conf.low,
                                                       ymax=conf.high), size=0.5, color="black") +
+  geom_hline(data = grand.mean.lh.analysis, aes(yintercept = auto.use.m), alpha = 0.75)+
   facet_grid(responsibility~algorithm)+
-  #scale_x_discrete(breaks=c(0.00,1.00),
-        #labels=c("No\n latent hazards", "Latent\n hazard"))+
+  scale_x_discrete(breaks=c(0.00,1.00),
+        labels=c("No\n latent hazards", "Latent\n hazard"))+
   labs(x= "Latent Hazard", y = "Automation Use")+
   theme_minimal()
 
 ggsave(plot = auto.use.latet.hazard.zone, filename = "Automation_Use_Latent_Hazard_Zones.pdf", width = 8, height = 4.25, dpi = 400)
 
-##### FREQUENCY OF EYE SWITCH VIOLIN PLOT + POINT RANGE ~ MOD 1 #####
+##### FREQUENCY OF EYE SWITCH VIOLIN PLOT + POINT RANGE ~ MOD 3 #####
 freq.eye.switch.latet.hazard.zone = ggplot() +
-  geom_point(data = lh.plots, aes(x=hazard.y.n, y=eye.on.switch.m), colour = "grey", alpha = 0.5)+
+  geom_sina(data = lh.plots, aes(x=hazard.y.n, y=eye.on.switch.m), colour = "grey", alpha = 0.5)+
   geom_violin(data = lh.plots, aes(x=hazard.y.n, y=eye.on.switch.m), colour = "grey", fill="gray", alpha = 0.5,
               trim=FALSE)+
   geom_point(data = lsmeans.mod3, aes(x=hazard.y.n, y=estimate), color = "black", shape =21, alpha = 0.2 )+
   geom_pointrange(data=lsmeans.mod3, mapping=aes(x=hazard.y.n, y=estimate, ymin=conf.low,
                                                       ymax=conf.high), size=0.5, color="black") +
+  geom_hline(data = grand.mean.lh.analysis, aes(yintercept = eye.on.switch.m), alpha = 0.75)+
   facet_grid(responsibility~algorithm)+
   scale_x_discrete(breaks=c(0.00,1.00),
         labels=c("No\n latent hazards", "Latent\n hazard"))+
@@ -198,43 +188,66 @@ ggsave(plot = freq.eye.switch.latet.hazard.zone, filename = "Frequency_Eye_Switc
 
 
 ##### FREQUENCY OF EYE SWITCH VIOLIN PLOT + POINT RANGE ~ MOD 1 #####
-freq.eye.switch.alg = ggplot() +
-  geom_point(data = alg.plots, aes(x=algorithm, y=eye.on.switch.m), colour = "grey", alpha = 0.5)+
-  geom_violin(data = alg.plots, aes(x=algorithm, y=eye.on.switch.m), colour = "grey", fill="grey", alpha = 0.5,
+#freq.eye.switch.alg
+ggplot() +
+  geom_sina(data = lh.plots, aes(x=algorithm, y=eye.on.switch.m), colour = "grey", alpha = 0.5)+
+  geom_violin(data = lh.plots, aes(x=algorithm, y=eye.on.switch.m), colour = "grey", fill="gray", alpha = 0.5,
               trim=FALSE)+
-  geom_point(data = lsmeans.alg.mod3, aes(x=algorithm, y=estimate), color = "black", shape =21, alpha = 0.2 )+
-  geom_pointrange(data=lsmeans.alg.mod3, mapping=aes(x=algorithm, y=estimate, ymin=conf.low,
+  geom_point(data = lsmeans.mod3, aes(x=algorithm, y=estimate), color = "black", shape =21, alpha = 0.2 )+
+  geom_pointrange(data=lsmeans.mod3, mapping=aes(x=algorithm, y=estimate, ymin=conf.low,
                                                       ymax=conf.high), size=0.5, color="black") +
-  facet_wrap(~responsibility)+
-  labs(x= "Algorithm", y = "Frequency of Eyes on Road Switches")+
+  geom_hline(data = grand.mean.lh.analysis, aes(yintercept = eye.on.switch.m), alpha = 0.75)+
+  facet_grid(hazard.y.n~responsibility)+
+  labs(x= "Algorihtm", y = "Frequency of Eyes on Road Switches")+
   theme_minimal()
 
-ggsave(plot = freq.eye.switch.alg, filename = "Frequency_Eye_Switch_Alg_Resp.pdf", width = 8, height = 4.25, dpi = 400)
+# ggsave(plot = freq.eye.switch.alg, filename = "Frequency_Eye_Switch_Alg_Resp.pdf", width = 8, height = 4.25, dpi = 400)
 
 ```
 
 ```{r}
 #############EOR & AUTOMATION USE OVER TIME ################
+library(ggplot2)
+library(dplyr)
+library(lubridate)
+library(gridExtra)
+library(scales)  # use with date_breaks
+library(cowplot)
+
 eor.timeline = latent.hazard.df %>% ungroup() %>% group_by(pid, algorithm, responsibility) %>%
   mutate(eor.y.n = ifelse(eyes.on.road.m >= 0.8, 1, 0),
-         hazard.plot = ifelse(hazard.y.n == 1, 0, 1))
+         hazard.plot = ifelse(hazard.y.n == 1, 0, 1), 
+         alg.exp = ifelse(final.deadband.cat == "automation off", 5,
+                          ifelse(final.deadband.cat == "lane keeping", 1, 0)))
 
-
-ggplot()+
-  geom_point(data = eor.timeline, aes(adj.time, y = reorder(as.factor(pid), -eyes.on.road.m), color = final.deadband.cat), size = 0.25, alpha = 0.5)+
-  #geom_path(data = eor.timeline, aes(adj.time, y = reorder(as.factor(pid.adj), -eyes.on.road.m), color = hazard.plot), size = 2)+
-  #geom_path(data = eor.timeline, aes(adj.time, y = reorder(as.factor(pid.adj), -eyes.on.road.m), color = eor.y.n), size = 0.5)+
-  #scale_color_gradient(low="black", high="white")+
+alg.timeline = ggplot()+
+  geom_point(data = eor.timeline, aes(window.time.1, y = reorder(as.factor(pid), -eyes.on.road.m), color = final.deadband.cat), size = 1.5, alpha = 0.1)+
   labs(x= "Time (s)", y = "Participant")+
   facet_wrap(~experiment, scales = "free")+
-  theme_minimal()
+  theme_minimal()+
+  theme(legend.position = "none",
+  axis.text.y = element_blank())
 
-ggplot()+
-  #geom_line(data = latent.hazard.df, aes(adj.time, as.factor(pid.adj), color = eyes.on.road.m), size = 5)+
-  geom_line(data = latent.hazard.df, aes(adj.time, as.factor(pid.adj), color = auto.mode), size = 2)+
+
+eor.lh.timeline = ggplot()+
+  geom_path(data = eor.timeline, aes(window.time.1, y = reorder(as.factor(pid.adj), -eyes.on.road.m), color = hazard.plot), size = 1, alpha = 0.75)+
+  geom_line(data = eor.timeline, aes(window.time.1, y = reorder(as.factor(pid.adj), -eyes.on.road.m), color = eor.y.n), size = 0.5)+
+  scale_color_gradient(low="black", high="white")+
   labs(x= "Time (s)", y = "Participant")+
-  scale_color_gradient(low="black", high="grey")+
-  theme_minimal()
+  facet_wrap(~experiment, scales = "free")+
+  theme_minimal()+
+  theme(legend.position = "none",
+  axis.text.y = element_blank())
+
+eor.alg.lh.timeline = ggdraw(alg.timeline) + draw_plot(eor.lh.timeline)
+eor.alg.lh.timeline
+
+ggsave(plot = eor.alg.lh.timeline, filename = "EOR_LH_ALG_Timeline.pdf", width = 8, height = 4.25, dpi = 400)
+
+
+#grid.arrange(alg.timeline, eor.lh.timeline) 
+# g1<-ggplot_gtable(ggplot_build(alg.timeline))
+# g2<-ggplot_gtable(ggplot_build(eor.lh.timeline))
 ```
 
 ```{r}
@@ -274,11 +287,6 @@ ggplot()+
 #   theme(panel.spacing.x=unit(2, "lines"))
 # 
 # ggsave(plot = auto.use.latet.hazard.zone, filename = "Automation_Use_Latent_Hazard_Zones.pdf", width = 8, height = 4.25, dpi = 400)
-```
-
-```{r}
-
-
 ```
 
 Add a new chunk by clicking the *Insert Chunk* button on the toolbar or by pressing *Cmd+Option+I*.
